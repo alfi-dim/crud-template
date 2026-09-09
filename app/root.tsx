@@ -1,15 +1,19 @@
-import {
-  isRouteErrorResponse,
-  Links,
-  Meta,
-  Outlet,
-  Scripts,
-  ScrollRestoration,
-} from "react-router";
+import { data, Links, Meta, Outlet, Scripts, ScrollRestoration, useLoaderData } from "react-router";
 
 import type { Route } from "./+types/root";
 import "./app.css";
-import {ThemeProvider} from "~/components/theme-provider";
+import { ThemeProvider } from "~/components/theme-provider";
+import {
+  commitSession,
+  createRequestSession,
+  destroySession,
+  getRequestSession,
+  markSessionDirty,
+  requestSessionContext,
+} from "~/sessions.server";
+import { toast, Toaster } from "~/components/ui/toast";
+import { useEffect } from "react";
+import { ErrorSection } from "~/components/error-section";
 
 export const links: Route.LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -24,7 +28,41 @@ export const links: Route.LinksFunction = () => [
   },
 ];
 
+export const middleware: Route.MiddlewareFunction[] = [
+  async ({ request, context }, next) => {
+    const state = await createRequestSession(request);
+    context.set(requestSessionContext, state);
+
+    const response = await next();
+    if (state.destroy) {
+      response.headers.append("Set-Cookie", await destroySession(state.session));
+    } else if (state.dirty) {
+      response.headers.append("Set-Cookie", await commitSession(state.session));
+    }
+    return response;
+  },
+];
+
+export const loader = async ({ context }: Route.LoaderArgs) => {
+  const { session } = getRequestSession(context);
+  const toast = session.get("toast");
+  if (toast) markSessionDirty(context);
+  return data({ toast });
+};
+
 export function Layout({ children }: { children: React.ReactNode }) {
+  const loaderData = useLoaderData<typeof loader>();
+  useEffect(() => {
+    if (!loaderData?.toast) return;
+
+    toast.add({
+      id: loaderData.toast.id,
+      title: loaderData.toast.title,
+      description: loaderData.toast.description,
+      type: loaderData.toast.type,
+      positionerProps: {},
+    });
+  }, [loaderData]);
   return (
     <html lang="en">
       <head>
@@ -35,7 +73,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         <ThemeProvider>
-          {children}
+          {children} <Toaster />
         </ThemeProvider>
         <ScrollRestoration />
         <Scripts />
@@ -48,31 +86,10 @@ export default function App() {
   return <Outlet />;
 }
 
-export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
-  let message = "Oops!";
-  let details = "An unexpected error occurred.";
-  let stack: string | undefined;
-
-  if (isRouteErrorResponse(error)) {
-    message = error.status === 404 ? "404" : "Error";
-    details =
-      error.status === 404
-        ? "The requested page could not be found."
-        : error.statusText || details;
-  } else if (import.meta.env.DEV && error && error instanceof Error) {
-    details = error.message;
-    stack = error.stack;
-  }
-
+export function ErrorBoundary() {
   return (
-    <main className="pt-16 p-4 container mx-auto">
-      <h1>{message}</h1>
-      <p>{details}</p>
-      {stack && (
-        <pre className="w-full p-4 overflow-x-auto">
-          <code>{stack}</code>
-        </pre>
-      )}
-    </main>
+    <ThemeProvider>
+      <ErrorSection />
+    </ThemeProvider>
   );
 }

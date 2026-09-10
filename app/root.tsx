@@ -14,6 +14,7 @@ import {
 import { toast, Toaster } from "~/components/ui/toast";
 import { useEffect } from "react";
 import { ErrorSection } from "~/components/error-section";
+import { TooltipProvider } from "~/components/ui/tooltip";
 
 export const links: Route.LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -73,7 +74,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         <ThemeProvider>
-          {children} <Toaster />
+          <TooltipProvider>{children}</TooltipProvider>
+          <Toaster />
         </ThemeProvider>
         <ScrollRestoration />
         <Scripts />

@@ -25,10 +25,13 @@ import { DataGridPagination } from "~/components/reui/data-grid/data-grid-pagina
 import { DataGridScrollArea } from "~/components/reui/data-grid/data-grid-scroll-area";
 import { DataGridTable } from "~/components/reui/data-grid/data-grid-table";
 
-import { Filters } from "~/components/reui/filters/filters";
+import { type FilterNode, Filters } from "~/components/reui/filters/filters";
 import {
   createFilterQuery,
+  type FilterCondition,
   flattenFilterConditions,
+  isFilterRule,
+  toFilterCondition,
 } from "~/components/reui/filters/filters-query";
 import type { FilterField, FilterQuery } from "~/components/reui/filters/filters-types";
 import { stringifyValue } from "~/lib/utils";
@@ -196,6 +199,22 @@ export function TableDate({
   );
 }
 
+function evaluateFilterNode<TData extends RowData>(
+  row: TData,
+  node: FilterNode,
+  predicate: (row: TData, condition: FilterCondition) => boolean,
+): boolean | null {
+  if (isFilterRule(node)) {
+    const condition = toFilterCondition(node);
+    return condition ? predicate(row, condition) : null;
+  }
+  const results = node.rules
+    .map((child) => evaluateFilterNode(row, child, predicate))
+    .filter((result): result is boolean => result !== null);
+  if (results.length === 0) return null;
+  return node.combinator === "and" ? results.every(Boolean) : results.some(Boolean);
+}
+
 export function DataTable<TData extends RowData>({
   data,
   columns,
@@ -254,7 +273,7 @@ export function DataTable<TData extends RowData>({
       }
 
       if (enableFilters && activeConditions.length) {
-        return activeConditions.every((condition) => filterCondition(row, condition));
+        return evaluateFilterNode(row, filterQuery, filterCondition) ?? true;
       }
 
       return true;

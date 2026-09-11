@@ -99,26 +99,34 @@ export function isFilterRuleComplete<V>(rule: FilterRule<V>): boolean {
   return rule.operator !== "";
 }
 
+export function toFilterCondition<V>(rule: FilterRule<V>): FilterCondition | null {
+  if (!isFilterRuleComplete(rule)) return null;
+  return {
+    path: rule.path,
+    field: rule.path[0],
+    operator: rule.operator,
+    values:
+      rule.value === undefined || rule.value === null
+        ? []
+        : Array.isArray(rule.value)
+          ? rule.value
+          : [rule.value],
+    negated: Boolean(rule.negated),
+  };
+}
+
 /**
  * Flattens a query to conditions. Lossy: safe only when the query is flat or
  * every group shares the root's combinator. Read `query.combinator` and walk
  * the tree yourself for anything else. Incomplete rules are left out.
  */
 export function flattenFilterConditions<V>(query: FilterQuery<V>): FilterCondition[] {
-  return flattenFilterRules(query)
-    .filter(isFilterRuleComplete)
-    .map((rule) => ({
-      path: rule.path,
-      field: rule.path[0],
-      operator: rule.operator,
-      values:
-        rule.value === undefined || rule.value === null
-          ? []
-          : Array.isArray(rule.value)
-            ? (rule.value as unknown[])
-            : [rule.value],
-      negated: Boolean(rule.negated),
-    }));
+  const conditions: FilterCondition[] = [];
+  for (const rule of flattenFilterRules(query)) {
+    const condition = toFilterCondition(rule);
+    if (condition) conditions.push(condition);
+  }
+  return conditions;
 }
 
 /** How many rules the query holds, at any depth. */

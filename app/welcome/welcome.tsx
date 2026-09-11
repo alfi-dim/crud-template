@@ -2,6 +2,167 @@ import logoDark from "./logo-dark.svg";
 import logoLight from "./logo-light.svg";
 import { ModeToggle } from "~/components/ui/mode-toggle";
 
+import { DataGridColumnHeader } from "~/components/reui/data-grid/data-grid-column-header";
+
+import { createDataTableColumnHelper, DataTable } from "~/components/data-table";
+import { humanize } from "~/lib/humanize";
+import type { FilterField } from "~/components/reui/filters/filters-types";
+import { ExternalLink } from "lucide-react";
+
+export interface DemoTableData {
+  id: string;
+  library: string;
+  url: string;
+  type: "ui-ux" | "core" | "styling" | "others";
+}
+
+const columnHelper = createDataTableColumnHelper<DemoTableData>();
+
+const columns = columnHelper.columns([
+  columnHelper.accessor("library", {
+    header: ({ column }) => <DataGridColumnHeader title="Library" column={column} />,
+    cell: (info) => <div>{info.getValue()}</div>,
+    enableSorting: true,
+    enableHiding: true,
+    enableResizing: true,
+    meta: {
+      autoSize: true,
+    },
+  }),
+
+  columnHelper.accessor("url", {
+    header: ({ column }) => <DataGridColumnHeader title="Link" column={column} />,
+    cell: (info) => (
+      <a
+        className="flex gap-1 text-blue-700 hover:underline dark:text-blue-500"
+        href={info.getValue()}
+        target="_blank"
+        rel="noreferrer"
+      >
+        {info.row.original.library} <ExternalLink size="14" />
+      </a>
+    ),
+    enableSorting: true,
+    enableHiding: true,
+    enableResizing: true,
+    size: 300,
+  }),
+
+  columnHelper.accessor("type", {
+    header: ({ column }) => <DataGridColumnHeader title="Type" column={column} />,
+    cell: (info) => <div>{humanize(info.getValue())}</div>,
+    enableSorting: true,
+    enableHiding: true,
+    enableResizing: true,
+    size: 180,
+  }),
+]);
+
+const filterFields = [
+  {
+    id: "feature",
+    label: "Feature",
+    type: "text",
+  },
+  {
+    id: "library",
+    label: "Library",
+    type: "text",
+  },
+  {
+    id: "type",
+    label: "Type",
+    type: "select",
+    options: [
+      {
+        label: "UI/UX",
+        value: "ui-ux",
+      },
+      {
+        label: "Core",
+        value: "core",
+      },
+      {
+        label: "Styling",
+        value: "styling",
+      },
+      {
+        label: "Others",
+        value: "others",
+      },
+    ],
+  },
+] satisfies FilterField[];
+
+const data: DemoTableData[] = [
+  {
+    id: "react-router",
+    library: "React Router",
+    url: "https://reactrouter.com/",
+    type: "core",
+  },
+  {
+    id: "vite",
+    library: "Vite",
+    url: "https://vite.dev/",
+    type: "core",
+  },
+  {
+    id: "tanstack-form",
+    library: "@tanstack/react-form",
+    url: "https://tanstack.com/form/latest",
+    type: "core",
+  },
+  {
+    id: "tanstack-table",
+    library: "@tanstack/react-table",
+    url: "https://tanstack.com/table/latest",
+    type: "core",
+  },
+  {
+    id: "tailwind",
+    library: "Tailwind",
+    url: "https://tailwindcss.com/",
+    type: "styling",
+  },
+  {
+    id: "lucide",
+    library: "Lucide",
+    url: "https://lucide.dev/",
+    type: "styling",
+  },
+  {
+    id: "shadcn",
+    library: "Shadcn",
+    url: "https://ui.shadcn.com/",
+    type: "ui-ux",
+  },
+  {
+    id: "reui-data-grid",
+    library: "ReUI's Data Grid",
+    url: "https://reui.io/docs/components/base/data-grid",
+    type: "ui-ux",
+  },
+  {
+    id: "zod",
+    library: "Zod",
+    url: "https://zod.dev/",
+    type: "others",
+  },
+  {
+    id: "oxlint",
+    library: "Oxlint",
+    url: "https://oxc.rs/docs/guide/usage/linter.html",
+    type: "others",
+  },
+  {
+    id: "oxfmt",
+    library: "Oxfmt",
+    url: "https://oxc.rs/docs/guide/usage/formatter.html",
+    type: "others",
+  },
+];
+
 export function Welcome() {
   return (
     <main className="flex items-center justify-center pt-16 pb-4 min-h-screen">
@@ -13,6 +174,17 @@ export function Welcome() {
           <div className="w-125 max-w-[100vw] p-4">
             <img src={logoLight} alt="React Router" className="block w-full dark:hidden" />
             <img src={logoDark} alt="React Router" className="hidden w-full dark:block" />
+          </div>
+          <div>
+            Basic heavy crud (auth + form + table) template, made by{" "}
+            <a
+              className="leading-normal text-blue-700 hover:underline dark:text-blue-500"
+              href="https://github.com/alfi-dim"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Dimas Alfiansyah
+            </a>
           </div>
         </header>
 
@@ -37,6 +209,17 @@ export function Welcome() {
               ))}
             </ul>
           </nav>
+        </div>
+
+        <div className="max-w-4xl w-full space-y-6 px-4">
+          <p className="text-xl">Demo Table</p>
+          <DataTable
+            data={data}
+            columns={columns}
+            filterFields={filterFields}
+            searchKeys={["library", "type"]}
+            searchPlaceholder="Search users..."
+          />
         </div>
       </div>
     </main>

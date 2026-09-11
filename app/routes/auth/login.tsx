@@ -1,18 +1,20 @@
-import { type LoaderFunctionArgs, redirect } from "react-router";
+import { type LoaderFunctionArgs, redirect, useActionData } from "react-router";
 import { getRequestSession, getSession, markSessionDirty } from "~/sessions.server";
-import { ConfigurableForm } from "~/components/form";
+import { ConfigurableForm, type FormActionResult } from "~/components/form";
 import { loginField, loginSchema } from "~/routes/auth/lib/config";
 import type { Route } from "./+types/login";
 import { readJsonAction } from "~/lib/action.server";
 import { dataWithToast } from "~/lib/utils.server";
+import { z } from "zod";
 
 export async function action({ request, context }: Route.ActionArgs) {
   const input = await readJsonAction(request);
   const parsed = loginSchema.safeParse(input);
   if (!parsed.success) {
-    return dataWithToast(
+    const flattened = z.flattenError(parsed.error);
+    return dataWithToast<FormActionResult>(
       context,
-      { error: "Invalid email/password" },
+      { ok: false, fieldErrors: flattened.fieldErrors, formError: flattened.formErrors[0] },
       {
         title: "Error",
         description: "Invalid email/password",
@@ -22,7 +24,12 @@ export async function action({ request, context }: Route.ActionArgs) {
   }
   const { email, password } = parsed.data;
   const { session } = getRequestSession(context);
-  if (email === "admin@admin.com" && password === "admin123") {
+  // THIS IS ONLY FOR DEMO PURPOSE! CHANGE THIS TO YOUR REAL IMPLEMENTATION
+  if (
+    email === "admin@admin.com" &&
+    password === "admin123" &&
+    process.env.NODE_ENV !== "production"
+  ) {
     session.set("userId", "admin");
     session.flash("toast", {
       id: "welcome-back",
@@ -34,9 +41,9 @@ export async function action({ request, context }: Route.ActionArgs) {
     return redirect("/home");
   }
 
-  return dataWithToast(
+  return dataWithToast<FormActionResult>(
     context,
-    { error: "Invalid email/password" },
+    { ok: false, formError: "Invalid email/password" },
     {
       title: "Error",
       description: "Invalid email/password",
@@ -51,10 +58,17 @@ export async function loader({ request }: LoaderFunctionArgs) {
   }
 }
 export default function Page() {
+  const actionData = useActionData<typeof action>();
   return (
     <div className="flex min-h-svh w-full items-center justify-center p-6 md:p-10">
       <div className="w-full max-w-sm">
-        <ConfigurableForm title="Login" target="/auth" schema={loginSchema} fields={loginField} />
+        <ConfigurableForm
+          actionData={actionData}
+          title="Login"
+          target="/auth"
+          schema={loginSchema}
+          fields={loginField}
+        />
       </div>
     </div>
   );

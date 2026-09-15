@@ -550,6 +550,8 @@ export function collapseCascaderPath<T>(
     return asNodes(path);
   }
 
+  if (maxSegments === 1) return asNodes(path.slice(-1));
+
   if (collapse === "start") {
     const tail = path.slice(path.length - maxSegments);
     return [

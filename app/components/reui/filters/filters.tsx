@@ -34,7 +34,6 @@ import {
 import { resolveFilterLabels } from "~/components/reui/filters/filters-i18n";
 import {
   buildFilterIndex,
-  computeFilterSchemaSignature,
   createFilterIdFactory,
   findFilterSchemaIssues,
   formatFilterPath,
@@ -149,7 +148,7 @@ function useControllableQuery<V, O>(
 
 export interface FiltersProps<V = unknown, O = unknown> {
   /** The field schema. Nested via each field's own `fields`. */
-  fields: FilterField<V, O>[];
+  fields: readonly FilterField<V, O>[];
 
   query?: FilterQuery<V>;
   defaultQuery?: FilterQuery<V>;
@@ -277,7 +276,7 @@ export function Filters<V = unknown, O = unknown>({
   renderEmpty,
   className,
   children,
-}: FiltersProps<V, O>) {
+}: Readonly<FiltersProps<V, O>>) {
   const { query, queryRef, setQuery } = useControllableQuery<V, O>(
     controlledQuery,
     defaultQuery,
@@ -308,17 +307,9 @@ export function Filters<V = unknown, O = unknown>({
 
   /* -------------------------------- derived ------------------------------- */
 
-  // `fields` is an inline literal at every real call site, so the CHEAP walk
-  // runs every render and the EXPENSIVE index memoizes on its result. Not a
-  // ref caching the previous index: writing a ref during render is the
-  // impurity this rewrite removed, and it misbehaves under StrictMode.
-  const signature = computeFilterSchemaSignature(fields);
-  const index = React.useMemo(
-    () => buildFilterIndex<V, O>(fields, null, signature),
-    // Not `fields`: its identity changes every render at every real call site.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [signature],
-  );
+  // Field callbacks and configuration must refresh with the supplied fields.
+  // Consumers can memoize expensive field arrays to avoid rebuilding the index.
+  const index = React.useMemo(() => buildFilterIndex<V, O>(fields), [fields]);
 
   const labels = React.useMemo(() => resolveFilterLabels(labelsProp), [labelsProp]);
 
@@ -540,7 +531,7 @@ export function Filters<V = unknown, O = unknown>({
   const announceReorder = React.useCallback(
     (next: FilterQuery<V>, id: string, fromParentId: string | null) => {
       const found = findFilterNode(next, id);
-      if (!found || !found.parent) return;
+      if (!found?.parent) return;
       const label = isFilterRule(found.node)
         ? formatFilterPath(
             latest.current.index,
@@ -740,7 +731,7 @@ export function Filters<V = unknown, O = unknown>({
   // Here rather than in each click handler, which is what lets the "arity none
   // skips the value step" branch live in the pure reducer.
   React.useEffect(() => {
-    if (!draft || draft.status !== "ready") return;
+    if (draft?.status !== "ready") return;
     if (!isFilterDraftCommittable(draft)) return;
 
     if (draft.ruleId) {
@@ -936,7 +927,7 @@ export interface FiltersRowProps {
  * every segment of every chip its own tab stop. There is NO combinator here,
  * because a chip row can draw a word between two pills but not a parenthesis.
  */
-export function FiltersRow({ trigger, showClear, className }: FiltersRowProps) {
+export function FiltersRow({ trigger, showClear, className }: Readonly<FiltersRowProps>) {
   const actions = useFilterActions();
   const sizes = filterControlSizes(actions);
   const { query, ruleCount, announcement, announcementSeq } = useFilterState();

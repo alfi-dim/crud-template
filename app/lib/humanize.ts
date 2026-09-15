@@ -37,10 +37,7 @@ type HumanizeValue = string | number | bigint | null | undefined;
  * humanize("product-sku") // "Product SKU"
  * humanize("apiResponseID") // "API Response ID"
  */
-export function humanize(
-  value: HumanizeValue,
-  options: Readonly<HumanizeOptions> = {},
-): string {
+export function humanize(value: HumanizeValue, options: Readonly<HumanizeOptions> = {}): string {
   const { case: outputCase = "title", fallback = "", acronyms = [] } = options;
 
   if (value === null || value === undefined) return fallback;
@@ -49,9 +46,7 @@ export function humanize(
   if (!input) return fallback;
 
   const acronymSet = new Set(
-    [...DEFAULT_HUMANIZE_ACRONYMS, ...acronyms].map((item) =>
-      item.toUpperCase(),
-    ),
+    [...DEFAULT_HUMANIZE_ACRONYMS, ...acronyms].map((item) => item.toUpperCase()),
   );
 
   const words = input

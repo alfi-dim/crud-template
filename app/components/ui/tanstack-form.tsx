@@ -142,7 +142,7 @@ function FieldError({ className, ...props }: React.ComponentProps<"p">) {
 function Form({
   children,
   ...props
-}: Omit<React.ComponentPropsWithoutRef<"form">, "onSubmit" & "noValidate"> & {
+}: Omit<React.ComponentPropsWithoutRef<"form">, "onSubmit" | "noValidate"> & {
   children?: React.ReactNode;
 }) {
   const form = useFormContext();
@@ -156,10 +156,11 @@ function Form({
   );
   return (
     <form
+      {...props}
+      method="post"
       onSubmit={handleSubmit}
       className={cn("flex flex-col p-2 md:p-5 w-full mx-auto gap-2", props.className)}
       noValidate
-      {...props}
     >
       {children}
     </form>

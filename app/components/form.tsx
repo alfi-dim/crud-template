@@ -2,7 +2,7 @@ import type { AnyFieldApi } from "@tanstack/react-form";
 import { useSelector } from "@tanstack/react-form";
 import { EyeIcon, EyeOffIcon } from "lucide-react";
 import * as React from "react";
-import { useFetcher, useNavigation, useSubmit } from "react-router";
+import { useFetcher, useFormAction, useNavigation, useSubmit } from "react-router";
 import type * as z from "zod";
 
 import { Button } from "~/components/ui/button";
@@ -147,9 +147,42 @@ export function ConfigurableForm<TValues extends Record<string, unknown>>({
   const submit = useSubmit();
   const navigation = useNavigation();
   const fetcher = useFetcher<FormActionResult>();
-  const [showServerErrors, setShowServerErrors] = React.useState(true);
+  const resolvedAction = useFormAction(target);
 
   const serverResult = submissionMode === "fetcher" ? fetcher.data : actionData;
+  const [errorState, setErrorState] = React.useState<{
+    result: FormActionResult | undefined;
+    editedFields: Set<string>;
+    hideAll: boolean;
+    hideFormError: boolean;
+  }>({ result: undefined, editedFields: new Set(), hideAll: false, hideFormError: false });
+  const currentErrors = errorState.result === serverResult;
+  const showServerErrors = !currentErrors || !errorState.hideAll;
+  const showFormError = showServerErrors && (!currentErrors || !errorState.hideFormError);
+
+  const hideServerErrors = () => {
+    setErrorState({
+      result: serverResult,
+      editedFields: new Set(),
+      hideAll: true,
+      hideFormError: true,
+    });
+  };
+
+  const clearServerError = React.useCallback(
+    (name: string) => {
+      setErrorState((previous) => ({
+        result: serverResult,
+        editedFields: new Set([
+          ...(previous.result === serverResult ? previous.editedFields : []),
+          name,
+        ]),
+        hideAll: previous.result === serverResult && previous.hideAll,
+        hideFormError: true,
+      }));
+    },
+    [serverResult],
+  );
 
   const form = useAppForm({
     defaultValues,
@@ -161,7 +194,7 @@ export function ConfigurableForm<TValues extends Record<string, unknown>>({
       onDynamic: schema,
     },
     onSubmit: ({ value }) => {
-      setShowServerErrors(false);
+      hideServerErrors();
       const payload = value as unknown as RouterSubmitTarget;
 
       const options = {
@@ -184,44 +217,42 @@ export function ConfigurableForm<TValues extends Record<string, unknown>>({
 
   const isDefault = useSelector(form.store, (state) => state.isDefaultValue);
   const canSubmit = useSelector(form.store, (state) => state.canSubmit);
+  const isOwnNavigation = Boolean(
+    navigation.formMethod &&
+    navigation.formAction &&
+    new URL(navigation.formAction).href === new URL(resolvedAction).href,
+  );
   const isBusy =
-    submissionMode === "fetcher" ? fetcher.state !== "idle" : navigation.state !== "idle";
+    submissionMode === "fetcher"
+      ? fetcher.state !== "idle"
+      : isOwnNavigation && navigation.state !== "idle";
+
+  const handleSuccess = React.useEffectEvent((result: FormActionResult) => {
+    if (resetOnSuccess) form.reset();
+    onSuccess?.(result);
+  });
 
   React.useEffect(() => {
-    setShowServerErrors(true);
+    if (serverResult?.ok === true) handleSuccess(serverResult);
   }, [serverResult]);
 
-  React.useEffect(() => {
-    if (serverResult?.ok !== true) return;
-
-    if (resetOnSuccess) {
-      form.reset();
-    }
-
-    onSuccess?.(serverResult);
-  }, [form, onSuccess, resetOnSuccess, serverResult]);
-
-  const clearServerErrors = React.useCallback(() => {
-    setShowServerErrors(false);
-  }, []);
-
-  const handleReset = React.useCallback(() => {
+  const handleReset = () => {
     form.reset();
-    setShowServerErrors(false);
+    hideServerErrors();
     if (submissionMode === "fetcher") fetcher.reset();
     onReset?.();
-  }, [fetcher, form, onReset, submissionMode]);
+  };
 
   return (
     <div ref={rootRef} className={cn("w-full", className)}>
       <form.AppForm>
-        <form.Form>
+        <form.Form action={resolvedAction}>
           <header className="space-y-1">
             <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
             {description ? <FieldDescription>{description}</FieldDescription> : null}
           </header>
 
-          {showServerErrors && serverResult?.formError ? (
+          {showFormError && serverResult?.formError ? (
             <p role="alert" className="text-destructive text-sm">
               {serverResult.formError}
             </p>
@@ -235,9 +266,12 @@ export function ConfigurableForm<TValues extends Record<string, unknown>>({
                     config={config}
                     field={field as unknown as AnyFieldApi}
                     serverError={
-                      showServerErrors ? serverResult?.fieldErrors?.[config.name]?.[0] : undefined
+                      showServerErrors &&
+                      (!currentErrors || !errorState.editedFields.has(config.name))
+                        ? serverResult?.fieldErrors?.[config.name]?.[0]
+                        : undefined
                     }
-                    clearServerErrors={clearServerErrors}
+                    clearServerErrors={() => clearServerError(config.name)}
                   />
                 )}
               </form.AppField>
@@ -319,6 +353,7 @@ function ConfiguredField<TValues extends Record<string, unknown>>({
           <Checkbox
             id={id}
             checked={Boolean(field.state.value)}
+            aria-required={config.required}
             disabled={config.disabled}
             aria-invalid={invalid}
             aria-describedby={describedBy || undefined}
@@ -353,6 +388,7 @@ function ConfiguredField<TValues extends Record<string, unknown>>({
         }}
       >
         <SelectTrigger
+          aria-required={config.required}
           id={id}
           className="w-full"
           aria-invalid={invalid}

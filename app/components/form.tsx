@@ -217,11 +217,14 @@ export function ConfigurableForm<TValues extends Record<string, unknown>>({
 
   const isDefault = useSelector(form.store, (state) => state.isDefaultValue);
   const canSubmit = useSelector(form.store, (state) => state.canSubmit);
-  const isOwnNavigation = Boolean(
-    navigation.formMethod &&
-    navigation.formAction &&
-    new URL(navigation.formAction).href === new URL(resolvedAction).href,
-  );
+  const isOwnNavigation =
+    submissionMode === "navigation" &&
+    Boolean(
+      navigation.formMethod &&
+      navigation.formAction &&
+      new URL(navigation.formAction, "http://form.local").href ===
+        new URL(resolvedAction, "http://form.local").href,
+    );
   const isBusy =
     submissionMode === "fetcher"
       ? fetcher.state !== "idle"

@@ -1,5 +1,5 @@
-import { type LoaderFunctionArgs, redirect, useActionData } from "react-router";
-import { getRequestSession, getSession, markSessionDirty } from "~/sessions.server";
+import { redirect, useActionData } from "react-router";
+import { getRequestSession, markSessionDirty } from "~/sessions.server";
 import { ConfigurableForm, type FormActionResult } from "~/components/form";
 import { loginField, loginSchema } from "~/routes/auth/lib/config";
 import type { Route } from "./+types/login";
@@ -28,7 +28,7 @@ export async function action({ request, context }: Route.ActionArgs) {
   if (
     email === "admin@admin.com" &&
     password === "admin123" &&
-    process.env.NODE_ENV !== "production"
+    process.env.NODE_ENV === "development"
   ) {
     session.set("userId", "admin");
     session.flash("toast", {
@@ -51,10 +51,10 @@ export async function action({ request, context }: Route.ActionArgs) {
     },
   );
 }
-export async function loader({ request }: LoaderFunctionArgs) {
-  const session = await getSession(request.headers.get("Cookie"));
+export function loader({ context }: Route.LoaderArgs) {
+  const { session } = getRequestSession(context);
   if (session.has("userId")) {
-    return redirect("/");
+    return redirect("/home");
   }
 }
 export default function Page() {

@@ -54,6 +54,9 @@ function DataGridPagination(props: DataGridPaginationProps): JSX.Element {
   const btnArrowClasses = btnBaseClasses + " rtl:transform rtl:rotate-180";
   const pageIndex = table.state.pagination.pageIndex;
   const pageSize = table.state.pagination.pageSize;
+  const pageSizes = [...new Set([...(mergedProps.sizes ?? []), pageSize])]
+    .filter((size) => Number.isInteger(size) && size > 0)
+    .sort((a, b) => a - b);
   const from = recordCount === 0 ? 0 : pageIndex * pageSize + 1;
   const to = Math.min((pageIndex + 1) * pageSize, recordCount);
   const pageCount = table.getPageCount();
@@ -169,7 +172,7 @@ function DataGridPagination(props: DataGridPaginationProps): JSX.Element {
                 alignItemWithTrigger={false}
                 className="min-w-(--anchor-width)"
               >
-                {mergedProps.sizes?.map((size: number) => (
+                {pageSizes.map((size: number) => (
                   <SelectItem key={size} value={`${size}`}>
                     {size}
                   </SelectItem>

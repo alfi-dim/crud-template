@@ -591,12 +591,29 @@ export function createFilterResolutionStore(): FilterResolutionStore {
     },
     set(fieldKey, options) {
       const map = bucket(fieldKey);
-      let landed = false;
+      let changed = false;
+
       for (const option of options) {
-        if (!map.has(option.value)) landed = true;
+        const previous = map.get(option.value);
+
+        const keys = new Set([...Object.keys(previous ?? {}), ...Object.keys(option)]);
+
+        const unchanged =
+          previous !== undefined &&
+          [...keys].every(
+            (key) =>
+              Object.hasOwn(previous, key) === Object.hasOwn(option, key) &&
+              Object.is(Reflect.get(previous, key), Reflect.get(option, key)),
+          );
+
+        if (unchanged) continue;
+
         map.set(option.value, option);
+        changed = true;
       }
-      if (!landed) return;
+
+      if (!changed) return;
+
       version += 1;
       for (const listener of listeners) listener();
     },

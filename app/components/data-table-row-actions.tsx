@@ -121,7 +121,8 @@ export function DataTableRowActionsMenu<TData extends RowData>({
 }: DataTableRowActionsMenuProps<TData>) {
   const config = normalizeConfig(configProp);
   const actions = resolveActions(config).filter(
-    (action) => !resolveValue(action.hidden, row.original),
+    (action) =>
+      !resolveValue(action.hidden, row.original) && Boolean(action.onSelect ?? onRowAction),
   );
 
   if (actions.length === 0) return null;

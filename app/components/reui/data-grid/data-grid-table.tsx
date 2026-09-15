@@ -549,6 +549,8 @@ function DataGridTableBase({ children }: { children: ReactNode }) {
   return (
     <table
       data-slot="data-grid-table"
+      aria-label={props["aria-label"]}
+      aria-labelledby={props["aria-labelledby"]}
       className={cn(
         "text-foreground caption-bottom text-left align-middle text-sm font-normal rtl:text-right",
         props.tableLayout?.columnsResizable ? "min-w-0" : "w-full min-w-full",

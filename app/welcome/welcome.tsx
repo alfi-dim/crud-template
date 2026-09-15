@@ -60,11 +60,6 @@ const columns = columnHelper.columns([
 
 const filterFields = [
   {
-    id: "feature",
-    label: "Feature",
-    type: "text",
-  },
-  {
     id: "library",
     label: "Library",
     type: "text",
@@ -214,11 +209,12 @@ export function Welcome() {
         <div className="max-w-4xl w-full space-y-6 px-4">
           <p className="text-xl">Demo Table</p>
           <DataTable
+            aria-label="Libraries"
             data={data}
             columns={columns}
             filterFields={filterFields}
             searchKeys={["library", "type"]}
-            searchPlaceholder="Search users..."
+            searchPlaceholder="Search libraries..."
           />
         </div>
       </div>

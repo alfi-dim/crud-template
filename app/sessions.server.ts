@@ -18,11 +18,12 @@ export type ToastFlash = {
 
 type SessionFlashData = {
   toast: ToastFlash;
-  error: string;
 };
 
 const AUTH_SECRET = process.env.AUTH_SECRET;
-if (!AUTH_SECRET) throw new Error("AUTH_SECRET is not defined");
+if (!AUTH_SECRET || AUTH_SECRET === "your_secret_key") {
+  throw new Error("Set AUTH_SECRET to a generated secret before starting the application");
+}
 
 const { getSession, commitSession, destroySession } = createCookieSessionStorage<
   SessionData,
@@ -53,7 +54,6 @@ export type RequestSessionState = {
   session: AppSession;
   dirty: boolean;
   destroy: boolean;
-  authorityRefreshed: boolean;
 };
 
 export const requestSessionContext = createContext<RequestSessionState>();
@@ -63,7 +63,6 @@ export async function createRequestSession(request: Request) {
     session: await getSession(request.headers.get("Cookie")),
     dirty: false,
     destroy: false,
-    authorityRefreshed: false,
   } satisfies RequestSessionState;
 }
 

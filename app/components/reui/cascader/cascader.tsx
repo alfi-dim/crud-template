@@ -701,13 +701,7 @@ function Cascader<T>({
   inline,
   children,
 }: CascaderProps<T>) {
-  const baseIndex = React.useMemo(
-    () => buildCascaderIndex(items, getParent),
-    // `getParent` is stable by design: an inline accessor must not rebuild a
-    // 50k-node index.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [items],
-  );
+  const baseIndex = React.useMemo(() => buildCascaderIndex(items, getParent), [items, getParent]);
 
   const baseId = React.useId();
 
@@ -1587,6 +1581,7 @@ function Cascader<T>({
   // shape whatever caused it: a row press, drag-select, or the headless hooks.
   const emitSelection = React.useCallback(
     (nextValues: string[], node: CascaderNode<T> | null, reason: CascaderChangeReason) => {
+      if (disabled || readOnly) return;
       const {
         selectedValues: current,
         multiple: currentMultiple,
@@ -1618,7 +1613,7 @@ function Cascader<T>({
         reason,
       });
     },
-    [setValue],
+    [setValue, disabled, readOnly],
   );
 
   const setSelection = React.useCallback(

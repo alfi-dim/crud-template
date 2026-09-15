@@ -13,53 +13,56 @@ type ThemeProviderState = {
   setTheme: (theme: Theme) => void;
 };
 
-const initialState: ThemeProviderState = {
-  theme: "system",
-  setTheme: () => null,
-};
+const ThemeProviderContext = createContext<ThemeProviderState | undefined>(undefined);
 
-const ThemeProviderContext = createContext<ThemeProviderState>(initialState);
+function isTheme(value: unknown): value is Theme {
+  return value === "light" || value === "dark" || value === "system";
+}
 
 export function ThemeProvider({
   children,
   defaultTheme = "system",
   storageKey = "vite-ui-theme",
-  ...props
 }: Readonly<ThemeProviderProps>) {
-  const [theme, setTheme] = useState<Theme>(
-    () =>
-      (typeof localStorage !== "undefined"
-        ? (localStorage?.getItem(storageKey) as Theme)
-        : "system") || defaultTheme,
-  );
+  // Match the server's first render before reading browser preferences.
+  const [themeState, setThemeState] = useState<Theme>(defaultTheme);
 
   useEffect(() => {
-    const root = window.document.documentElement;
-
-    root.classList.remove("light", "dark");
-
-    if (theme === "system") {
-      const systemTheme = window.matchMedia("(prefers-color-scheme: dark)").matches
-        ? "dark"
-        : "light";
-
-      root.classList.add(systemTheme);
-      return;
+    try {
+      const stored = localStorage.getItem(storageKey);
+      setThemeState(isTheme(stored) ? stored : defaultTheme);
+    } catch {
+      setThemeState(defaultTheme);
     }
+  }, [defaultTheme, storageKey]);
 
-    root.classList.add(theme);
-  }, [theme]);
+  useEffect(() => {
+    const root = document.documentElement;
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const applyTheme = () => {
+      const effective = themeState === "system" ? (media.matches ? "dark" : "light") : themeState;
+      root.classList.remove("light", "dark");
+      root.classList.add(effective);
+      root.style.colorScheme = effective;
+    };
+    applyTheme();
+    if (themeState !== "system") return;
+    media.addEventListener("change", applyTheme);
+    return () => media.removeEventListener("change", applyTheme);
+  }, [themeState]);
 
-  const value = {
-    theme,
-    setTheme: (theme: Theme) => {
-      localStorage.setItem(storageKey, theme);
-      setTheme(theme);
-    },
+  const setTheme = (value: Theme) => {
+    if (!isTheme(value)) return;
+    setThemeState(value);
+    try {
+      localStorage.setItem(storageKey, value);
+    } catch {
+      // The selected theme still works when browser storage is unavailable.
+    }
   };
 
   return (
-    <ThemeProviderContext.Provider {...props} value={value}>
+    <ThemeProviderContext.Provider value={{ theme: themeState, setTheme }}>
       {children}
     </ThemeProviderContext.Provider>
   );
@@ -67,8 +70,6 @@ export function ThemeProvider({
 
 export const useTheme = () => {
   const context = useContext(ThemeProviderContext);
-
   if (context === undefined) throw new Error("useTheme must be used within a ThemeProvider");
-
   return context;
 };

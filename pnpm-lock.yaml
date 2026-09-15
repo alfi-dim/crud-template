@@ -50,6 +50,9 @@ importers:
       date-fns:
         specifier: ^4.4.0
         version: 4.4.0
+      dotenv:
+        specifier: ^17.4.2
+        version: 17.4.2
       isbot:
         specifier: ^5.2.2
         version: 5.2.2
@@ -65,9 +68,6 @@ importers:
       react-router:
         specifier: ^8.3.1
         version: 8.3.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      shadcn:
-        specifier: ^4.21.0
-        version: 4.21.0(typescript@5.9.3)
       tw-animate-css:
         specifier: ^1.4.0
         version: 1.4.0
@@ -90,15 +90,15 @@ importers:
       '@types/react-dom':
         specifier: ^19.2.7
         version: 19.2.7(@types/react@19.2.18)
-      dotenv:
-        specifier: ^17.4.2
-        version: 17.4.2
       oxfmt:
         specifier: ^0.61.0
         version: 0.61.0
       oxlint:
         specifier: ^1.82.0
         version: 1.82.0
+      shadcn:
+        specifier: ^4.21.0
+        version: 4.21.0(typescript@5.9.3)
       tailwindcss:
         specifier: ^4.3.3
         version: 4.3.3

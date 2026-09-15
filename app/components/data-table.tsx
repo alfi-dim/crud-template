@@ -25,16 +25,19 @@ import { DataGridPagination } from "~/components/reui/data-grid/data-grid-pagina
 import { DataGridScrollArea } from "~/components/reui/data-grid/data-grid-scroll-area";
 import { DataGridTable } from "~/components/reui/data-grid/data-grid-table";
 
-import { type FilterNode, Filters } from "~/components/reui/filters/filters";
+import { Filters } from "~/components/reui/filters/filters";
 import {
   createFilterQuery,
-  type FilterCondition,
   flattenFilterConditions,
-  isFilterRule,
-  toFilterCondition,
 } from "~/components/reui/filters/filters-query";
+import { buildFilterIndex, getFilterField } from "~/components/reui/filters/filters-lib";
+import {
+  getFilterArity,
+  getFilterOperator,
+  resolveFilterOperators,
+} from "~/components/reui/filters/filters-operators";
 import type { FilterField, FilterQuery } from "~/components/reui/filters/filters-types";
-import { stringifyValue } from "~/lib/utils";
+import { isEmptyValue, stringifyValue, toFiniteNumber } from "~/lib/utils";
 import {
   createDataTableRowActionsColumn,
   type DataTableRowActions,
@@ -52,13 +55,17 @@ export interface DataTableProps<TData extends RowData> {
   columns: readonly DataTableColumn<TData>[];
   rowActions?: DataTableRowActions<TData>;
   onRowAction?: RowActionHandler<TData>;
-  filterFields?: FilterField[];
+  filterFields?: readonly FilterField[];
   searchKeys?: (keyof TData)[];
   searchPlaceholder?: string;
   initialPageSize?: number;
+  "aria-label"?: string;
+  "aria-labelledby"?: string;
   enableSearch?: boolean;
   enableFilters?: boolean;
   enableColumnVisibility?: boolean;
+  /** Opt in to the grid primitive's pointer-based column resizing. */
+  enableColumnResizing?: boolean;
   isLoading?: boolean;
   loadingMessage?: React.ReactNode;
   emptyMessage?: React.ReactNode;
@@ -96,12 +103,12 @@ function defaultFilterCondition<TData extends RowData>(row: TData, condition: Fl
 
   switch (String(condition.operator)) {
     case "is":
-    case "equals":
+    case "eq":
     case "is_any_of":
       matches = values.includes(value);
       break;
     case "is_not":
-    case "not_equals":
+    case "neq":
     case "is_none_of":
       matches = !values.includes(value);
       break;
@@ -118,34 +125,55 @@ function defaultFilterCondition<TData extends RowData>(row: TData, condition: Fl
       matches = normalizedValues.some((entry) => normalizedValue.endsWith(entry));
       break;
     case "empty":
-      matches = rawValue === null || rawValue === undefined || value.trim() === "";
+      matches = isEmptyValue(rawValue);
       break;
     case "not_empty":
-      matches = rawValue !== null && rawValue !== undefined && value.trim() !== "";
+      matches = !isEmptyValue(rawValue);
       break;
-    case "greater_than":
-      matches = Number(rawValue) > Number(values[0]);
+    case "gt":
+    case "gte":
+    case "lt":
+    case "lte": {
+      const current = toFiniteNumber(rawValue);
+      const bound = toFiniteNumber(condition.values[0]);
+      if (current === null || bound === null) return false;
+      matches =
+        condition.operator === "gt"
+          ? current > bound
+          : condition.operator === "gte"
+            ? current >= bound
+            : condition.operator === "lt"
+              ? current < bound
+              : current <= bound;
       break;
-    case "greater_than_or_equal":
-      matches = Number(rawValue) >= Number(values[0]);
+    }
+    case "has_any_of":
+    case "has_all_of":
+    case "has_none_of": {
+      if (!Array.isArray(rawValue)) return false;
+      const entries = new Set(rawValue.map(stringifyValue));
+      matches =
+        condition.operator === "has_all_of"
+          ? values.every((entry) => entries.has(entry))
+          : condition.operator === "has_none_of"
+            ? values.every((entry) => !entries.has(entry))
+            : values.some((entry) => entries.has(entry));
       break;
-    case "less_than":
-      matches = Number(rawValue) < Number(values[0]);
-      break;
-    case "less_than_or_equal":
-      matches = Number(rawValue) <= Number(values[0]);
-      break;
-    case "between": {
-      const current = Number(rawValue);
-      const min = Number(values[0]);
-      const max = Number(values[1]);
+    }
+    case "between":
+    case "not_between": {
+      const current = toFiniteNumber(rawValue);
+      const min = toFiniteNumber(condition.values[0]);
+      const max = toFiniteNumber(condition.values[1]);
 
-      matches = current >= min && current <= max;
+      if (current === null || min === null || max === null) return false;
+      const within = current >= min && current <= max;
+      matches = condition.operator === "not_between" ? !within : within;
 
       break;
     }
     default:
-      matches = true;
+      return false;
   }
   return condition.negated ? !matches : matches;
 }
@@ -199,34 +227,23 @@ export function TableDate({
   );
 }
 
-function evaluateFilterNode<TData extends RowData>(
-  row: TData,
-  node: FilterNode,
-  predicate: (row: TData, condition: FilterCondition) => boolean,
-): boolean | null {
-  if (isFilterRule(node)) {
-    const condition = toFilterCondition(node);
-    return condition ? predicate(row, condition) : null;
-  }
-  const results = node.rules
-    .map((child) => evaluateFilterNode(row, child, predicate))
-    .filter((result): result is boolean => result !== null);
-  if (results.length === 0) return null;
-  return node.combinator === "and" ? results.every(Boolean) : results.some(Boolean);
-}
+const EMPTY_FILTER_FIELDS: readonly FilterField[] = Object.freeze([]);
 
 export function DataTable<TData extends RowData>({
   data,
   columns,
   rowActions = false,
   onRowAction,
-  filterFields = [],
+  filterFields = EMPTY_FILTER_FIELDS,
   searchKeys,
   searchPlaceholder = "Search...",
   initialPageSize = 10,
+  "aria-label": ariaLabel,
+  "aria-labelledby": ariaLabelledBy,
   enableSearch = true,
   enableFilters = true,
   enableColumnVisibility = true,
+  enableColumnResizing = false,
   isLoading = false,
   loadingMessage = "Loading data...",
   emptyMessage = "No data available.",
@@ -235,6 +252,10 @@ export function DataTable<TData extends RowData>({
   getSearchValues,
   getRowId,
 }: Readonly<DataTableProps<TData>>) {
+  if (!Number.isInteger(initialPageSize) || initialPageSize <= 0) {
+    throw new RangeError("initialPageSize must be a positive integer");
+  }
+
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
     pageSize: initialPageSize,
@@ -246,7 +267,17 @@ export function DataTable<TData extends RowData>({
 
   const [filterQuery, setFilterQuery] = useState<FilterQuery>(() => createFilterQuery());
 
-  const activeConditions = useMemo(() => flattenFilterConditions(filterQuery), [filterQuery]);
+  const filterIndex = useMemo(() => buildFilterIndex(filterFields), [filterFields]);
+  const activeConditions = useMemo(
+    () =>
+      flattenFilterConditions(filterQuery, (rule) => {
+        const field = getFilterField(filterIndex, rule.path);
+        if (!field) return null;
+        const operator = getFilterOperator(resolveFilterOperators(field), rule.operator);
+        return operator ? getFilterArity(operator) : "unsupported";
+      }),
+    [filterQuery, filterIndex],
+  );
 
   const filteredData = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
@@ -273,7 +304,7 @@ export function DataTable<TData extends RowData>({
       }
 
       if (enableFilters && activeConditions.length) {
-        return evaluateFilterNode(row, filterQuery, filterCondition) ?? true;
+        return activeConditions.every((condition) => filterCondition(row, condition));
       }
 
       return true;
@@ -348,6 +379,8 @@ export function DataTable<TData extends RowData>({
   return (
     <DataGrid
       table={table}
+      aria-label={ariaLabel}
+      aria-labelledby={ariaLabelledBy}
       recordCount={filteredData.length}
       isLoading={isLoading}
       loadingMessage={loadingMessage}
@@ -360,7 +393,7 @@ export function DataTable<TData extends RowData>({
         rowBorder: true,
         headerBorder: true,
         width: "fixed",
-        columnsResizable: true,
+        columnsResizable: enableColumnResizing,
         columnsVisibility: enableColumnVisibility,
       }}
     >
@@ -400,6 +433,7 @@ export function DataTable<TData extends RowData>({
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <div className="min-w-0 flex-1">
                 <Filters
+                  variant="basic"
                   fields={filterFields}
                   query={filterQuery}
                   onQueryChange={handleFilterChange}

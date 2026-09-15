@@ -7,7 +7,8 @@ export const loginSchema = z.object({
 
 export const loginField: FormFieldConfig<z.infer<typeof loginSchema>>[] = [
   {
-    type: "text",
+    type: "email",
+    autoComplete: "username",
     name: "email",
     label: "Email",
     placeholder: "Enter your email",
@@ -15,6 +16,7 @@ export const loginField: FormFieldConfig<z.infer<typeof loginSchema>>[] = [
   },
   {
     type: "password",
+    autoComplete: "current-password",
     name: "password",
     label: "Password",
     placeholder: "Enter your password",

@@ -287,6 +287,8 @@ export type DataGridRequestParams = {
 };
 
 export interface DataGridProps<TFeatures extends TableFeatures, TData extends object> {
+  "aria-label"?: string;
+  "aria-labelledby"?: string;
   className?: string;
   table?: Table<TFeatures, TData>;
   recordCount: number;

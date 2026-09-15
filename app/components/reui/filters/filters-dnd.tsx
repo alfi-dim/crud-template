@@ -49,12 +49,7 @@ export interface FilterDropResolution<T extends FilterDropBox> {
 }
 
 function contains(box: FilterDropBox, x: number, y: number, grow = 0): boolean {
-  return (
-    x >= box.left &&
-    x <= box.right &&
-    y >= box.top - grow &&
-    y <= box.bottom + grow
-  );
+  return x >= box.left && x <= box.right && y >= box.top - grow && y <= box.bottom + grow;
 }
 
 /**
@@ -123,10 +118,7 @@ export function isFilterDropNoop(
 ): boolean {
   if (!resolution || !origin || copy) return false;
   if (resolution.target.parentId !== origin.parentId) return false;
-  return (
-    resolution.target.index === origin.index ||
-    resolution.target.index === origin.index + 1
-  );
+  return resolution.target.index === origin.index || resolution.target.index === origin.index + 1;
 }
 
 /** Rows unmount mid-gesture, so it is the PANEL leaving that aborts a drag. */
@@ -199,10 +191,7 @@ function findScrollParent(el: HTMLElement | null): HTMLElement | null {
   while (node) {
     const style = getComputedStyle(node);
     const overflow = `${style.overflowY} ${style.overflow}`;
-    if (
-      /(auto|scroll|overlay)/.test(overflow) &&
-      node.scrollHeight > node.clientHeight
-    ) {
+    if (/(auto|scroll|overlay)/.test(overflow) && node.scrollHeight > node.clientHeight) {
       return node;
     }
     node = node.parentElement;
@@ -229,9 +218,7 @@ function collectSurface(root: HTMLElement, dragged: HTMLElement): Surface {
   const zones: MeasuredBox[] = [];
   const rows: MeasuredBox[] = [];
 
-  for (const el of root.querySelectorAll<HTMLElement>(
-    FILTER_DROP_ZONE_SELECTOR,
-  )) {
+  for (const el of root.querySelectorAll<HTMLElement>(FILTER_DROP_ZONE_SELECTOR)) {
     if (dragged.contains(el)) continue;
     const parentId = el.dataset.dropParent;
     if (!parentId) continue;
@@ -295,10 +282,7 @@ export interface FilterRowDragOptions {
  * Straight to the DOM: a React state write per move is a tree render. A zone
  * marks TWO elements, itself and its card, and both clear every frame.
  */
-function paint(
-  surface: Surface,
-  hit: FilterDropResolution<MeasuredBox> | null,
-) {
+function paint(surface: Surface, hit: FilterDropResolution<MeasuredBox> | null) {
   for (const box of surface.zones) {
     delete box.el.dataset.dropInto;
     if (box.card) delete box.card.dataset.dropInto;
@@ -447,8 +431,7 @@ function startDrag(
   // `none` is tested first: `copy` over nothing is still nothing.
   const paintCursor = () => {
     if (!active) return;
-    document.body.style.cursor =
-      dropState === "none" ? "no-drop" : copy ? "copy" : "grabbing";
+    document.body.style.cursor = dropState === "none" ? "no-drop" : copy ? "copy" : "grabbing";
   };
 
   // Deliberately NOT guarded on `dropState === next`: the first resolution of a
@@ -483,12 +466,7 @@ function startDrag(
     // see `Surface.viewport`, a mirror misses the user's own scroll.
     const scrolled = surface.viewport?.scrollTop ?? surface.startScrollTop;
     const drift = scrolled - surface.startScrollTop;
-    const resolved = resolveFilterDrop(
-      surface.zones,
-      surface.rows,
-      x,
-      y + drift,
-    );
+    const resolved = resolveFilterDrop(surface.zones, surface.rows, x, y + drift);
     const noop = isFilterDropNoop(resolved, origin, copy);
     // A no-op commits as NOTHING, not as a move the tree would discard.
     hit = noop ? null : resolved;

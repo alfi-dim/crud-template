@@ -1,3 +1,4 @@
+import { isEmptyValue } from "~/lib/utils";
 import type {
   FilterCombinator,
   FilterGroupNode,
@@ -89,41 +90,65 @@ export interface FilterCondition {
   negated: boolean;
 }
 
-/**
- * Whether a rule says anything yet. A rule exists as soon as an attribute is
- * picked, so `operator: ""` is a real state: `flattenFilterConditions` leaves
- * it out, `countFilterRules` still counts it, and `collectFilterIssues` reports
- * it as `missing-operator`.
- */
-export function isFilterRuleComplete<V>(rule: FilterRule<V>): boolean {
-  return rule.operator !== "";
+/** Incomplete rules stay visible in the editor but do not filter rows. */
+function hasFilterValue(value: unknown): boolean {
+  return !isEmptyValue(value);
 }
 
-export function toFilterCondition<V>(rule: FilterRule<V>): FilterCondition | null {
-  if (!isFilterRuleComplete(rule)) return null;
+export function isFilterRuleComplete<V>(
+  rule: FilterRule<V>,
+  arity: FilterOperator["arity"],
+): boolean {
+  if (!rule.operator) return false;
+  if (arity === "none") return true;
+  const values = Array.isArray(rule.value) ? rule.value : [rule.value];
+  if (arity === "range") {
+    return values.length === 2 && values.every(hasFilterValue);
+  }
+  if (arity === "many") return values.some(hasFilterValue);
+  return values.length === 1 && hasFilterValue(values[0]);
+}
+
+export function toFilterCondition<V>(
+  rule: FilterRule<V>,
+  arity: FilterOperator["arity"] | "unsupported",
+): FilterCondition | null {
+  // Keep unknown nonempty operators so the predicate can reject them.
+  if (!rule.operator || (arity !== "unsupported" && !isFilterRuleComplete(rule, arity)))
+    return null;
   return {
     path: rule.path,
     field: rule.path[0],
     operator: rule.operator,
     values:
-      rule.value === undefined || rule.value === null
+      arity === "none"
         ? []
         : Array.isArray(rule.value)
-          ? rule.value
-          : [rule.value],
+          ? rule.value.filter(hasFilterValue)
+          : hasFilterValue(rule.value)
+            ? [rule.value]
+            : [],
     negated: Boolean(rule.negated),
   };
 }
 
 /**
- * Flattens a query to conditions. Lossy: safe only when the query is flat or
- * every group shares the root's combinator. Read `query.combinator` and walk
- * the tree yourself for anything else. Incomplete rules are left out.
+ * Collects complete conditions using each field's resolved operator arity.
+ * Missing fields (resolver returns null) and incomplete known rules are omitted.
+ * Unsupported nonempty operators are emitted even without values so predicates
+ * can reject them instead of silently ignoring the filter.
+ * Group structure is discarded: combine these conditions with AND only for
+ * flat AND queries. Advanced consumers must evaluate their own query tree.
  */
-export function flattenFilterConditions<V>(query: FilterQuery<V>): FilterCondition[] {
+export function flattenFilterConditions<V>(
+  query: FilterQuery<V>,
+  arityOf: (rule: FilterRule<V>) => FilterOperator["arity"] | "unsupported" | null,
+): FilterCondition[] {
   const conditions: FilterCondition[] = [];
   for (const rule of flattenFilterRules(query)) {
-    const condition = toFilterCondition(rule);
+    const arity = arityOf(rule);
+    if (arity === null) continue;
+    const condition = toFilterCondition(rule, arity);
     if (condition) conditions.push(condition);
   }
   return conditions;
@@ -143,7 +168,7 @@ export function countFilterRules<V>(query: FilterQuery<V>): number {
   return count;
 }
 
-/** Whether the query would match everything. */
+/** Whether the query contains no rules, including unfinished rules. */
 export function isFilterQueryEmpty<V>(query: FilterQuery<V>): boolean {
   return countFilterRules(query) === 0;
 }
@@ -159,7 +184,7 @@ export type FilterValidateResolver<V> = (rule: FilterRule<V>) => string | null |
 
 /** A value slot the user has not filled in. `false` and `0` are values. */
 function isBlankFilterValue(value: unknown): boolean {
-  return value === undefined || value === null || value === "";
+  return isEmptyValue(value);
 }
 
 /**
@@ -185,16 +210,11 @@ function compareFilterBounds(from: unknown, to: unknown): number | null {
 }
 
 /**
- * Every reason a query cannot be run as written, in document order: the five
- * ways this builder can hold a condition that SILENTLY does the wrong thing.
- * `missing-operator` and `empty-group` carry no predicate and are dropped by
- * `flattenFilterConditions`; `missing-value` reaches the consumer with a
- * `values` array that is empty or all blank, which most backends read as
- * "match nothing"; `incomplete-range` is the same for a range and often
- * arrives with one bound FILLED, so an emptiness check will not catch it;
- * `reversed-range` is legal and matches nothing anywhere. A group of exactly
- * ONE node is NOT an issue (it is what "Convert to group" produces), and the
- * root is exempt from `empty-group`.
+ * Reports missing operators, missing values, incomplete or reversed ranges,
+ * empty groups and custom validation errors in document order. Incomplete
+ * rules are omitted by flattenFilterConditions when using the same arity
+ * resolver; diagnostics keep them visible so users can finish editing.
+ * The root and groups with one node are not empty-group issues.
  */
 export function collectFilterIssues<V>(
   query: FilterQuery<V>,
@@ -222,7 +242,7 @@ export function collectFilterIssues<V>(
       const arity = arityOf(child);
       if (arity === null) continue;
 
-      if (!isFilterRuleComplete(child)) {
+      if (!child.operator) {
         issues.push({
           nodeId: child.id,
           column: "operator",
@@ -241,7 +261,7 @@ export function collectFilterIssues<V>(
             : [child.value];
 
       if (arity === "range") {
-        if (values.length < 2 || isBlankFilterValue(values[0]) || isBlankFilterValue(values[1])) {
+        if (values.length !== 2 || isBlankFilterValue(values[0]) || isBlankFilterValue(values[1])) {
           issues.push({
             nodeId: child.id,
             column: "value",
@@ -260,9 +280,8 @@ export function collectFilterIssues<V>(
         continue;
       }
 
-      // `many` and `one` collapse here: both are unsatisfied by an empty list,
-      // and `one` normalises to a single-element list above.
-      if (values.every(isBlankFilterValue)) {
+      // Share the predicate completeness check, including exact single-value arity.
+      if (!isFilterRuleComplete(child, arity)) {
         issues.push({
           nodeId: child.id,
           column: "value",
@@ -442,7 +461,7 @@ export function duplicateFilterNode<V>(
   nextId: () => string,
 ): FilterQuery<V> {
   const found = findFilterNode(query, id);
-  if (!found || !found.parent) return query;
+  if (!found?.parent) return query;
 
   return insertFilterNode(
     query,
@@ -477,7 +496,7 @@ export function moveFilterNode<V>(
   delta: number,
 ): FilterQuery<V> {
   const found = findFilterNode(query, id);
-  if (!found || !found.parent) return query;
+  if (!found?.parent) return query;
 
   const from = found.index;
   const to = from + delta;
@@ -539,7 +558,7 @@ export function moveFilterNodeTo<V>(
   index: number,
 ): FilterQuery<V> {
   const found = findFilterNode(query, id);
-  if (!found || !found.parent) return query;
+  if (!found?.parent) return query;
   if (containsFilterNode(found.node, parentId)) return query;
 
   const destination = findFilterNode(query, parentId);
@@ -568,7 +587,7 @@ export function copyFilterNodeTo<V>(
   nextId: () => string,
 ): FilterQuery<V> {
   const found = findFilterNode(query, id);
-  if (!found || !found.parent) return query;
+  if (!found?.parent) return query;
 
   const destination = findFilterNode(query, parentId);
   if (!destination || !isFilterGroup(destination.node)) return query;
@@ -587,7 +606,7 @@ export function wrapFilterNodeInGroup<V>(
   combinator: FilterCombinator = "or",
 ): FilterQuery<V> {
   const found = findFilterNode(query, id);
-  if (!found || !found.parent) return query;
+  if (!found?.parent) return query;
 
   return rewriteGroup(
     query,
@@ -609,7 +628,7 @@ export function wrapFilterNodeInGroup<V>(
 export function unwrapFilterGroup<V>(query: FilterQuery<V>, groupId: string): FilterQuery<V> {
   if (query.id === groupId) return query;
   const found = findFilterNode(query, groupId);
-  if (!found || !found.parent || !isFilterGroup(found.node)) return query;
+  if (!found?.parent || !isFilterGroup(found.node)) return query;
 
   const dissolved = found.node;
   return rewriteGroup(

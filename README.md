@@ -10,7 +10,7 @@ The repository supplies reusable UI and integration points without choosing a da
 - Tailwind CSS 4 and reusable UI primitives
 - Cookie-session scaffolding and protected-route examples
 - TanStack Form with shared Zod validation
-- TanStack Table with search, sorting, pagination, column controls, row actions, and nested filters
+- TanStack Table with search, sorting, pagination, column controls, row actions, and basic flat AND filters
 - Toast feedback stored in the request session
 - TypeScript, Oxlint, and Oxfmt
 - Multi-stage Docker build
@@ -31,7 +31,7 @@ corepack enable
 pnpm install
 ```
 
-Create `.env` from `.env.example`, then replace the placeholder with a generated secret:
+Create `.env` from `.env.example`, then replace the placeholder with a generated secret (missing secrets and the literal `your_secret_key` are rejected at startup):
 
 ```sh
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
@@ -73,7 +73,7 @@ Email: admin@admin.com
 Password: admin123
 ```
 
-Demo credentials are rejected when `NODE_ENV=production`. Before deploying an application created from this template, replace the credential check in `app/routes/auth/login.tsx` and adapt the session data to the project's user model.
+Demo credentials are accepted only when `NODE_ENV=development`. They are rejected in every other environment. Before deploying an application created from this template, replace the credential check in `app/routes/auth/login.tsx` and adapt the session data to the project's user model.
 
 The example route flow is:
 
@@ -135,7 +135,9 @@ type FormActionResult = {
 };
 ```
 
-The component currently submits JSON with `POST`. Routes can use `readJsonAction()` from `app/lib/action.server.ts` to enforce that transport and parse the body.
+The component submits JSON with `POST`. Routes can use `readJsonAction()` from `app/lib/action.server.ts` to enforce that transport and parse the body. The HTML form also declares `POST` so credentials cannot fall back to URL query parameters before hydration. Native submissions without JavaScript are rejected with 415 by the JSON-only helper.
+
+Editing a field clears its server error and the form-level error, while preserving errors for untouched fields. A new server result restores its errors. Success handling depends on the result, not callback identity; unrelated navigation does not mark the form busy. Required select and checkbox controls expose `aria-required`.
 
 ## Data Table
 
@@ -163,11 +165,15 @@ const columns = columnHelper.columns([
 ]);
 
 export function UsersTable({ users }: { users: UserRow[] }) {
-  return <DataTable data={users} columns={columns} searchKeys={["name", "status"]} />;
+  return (
+    <DataTable aria-label="Users" data={users} columns={columns} searchKeys={["name", "status"]} />
+  );
 }
 ```
 
-The table performs pagination, sorting, searching, and filtering in the browser over the complete supplied dataset. Nested filter groups preserve `AND`, `OR`, and rule-negation behavior.
+The table performs pagination, sorting, searching, and filtering in the browser over the complete supplied dataset. DataTable uses basic filters: flat rules combined with implicit `AND`. Incomplete rules are ignored according to each field’s resolved operator arity (including custom operators); unsupported nonempty operators match no rows even when they have no value. Empty selections are checked by array length, and numeric comparisons exclude missing, blank, and non-finite values. The advanced Filters component remains available independently, but DataTable does not support nested groups or OR queries.
+
+`initialPageSize` must be a positive integer; the current size is included in the page-size selector. Use `aria-label` or `aria-labelledby` to identify each table. Row actions without an individual or shared handler are omitted. Column resizing defaults to off; `enableColumnResizing={true}` opts into the grid primitive’s pointer-based resize handles.
 
 Server-controlled pagination, URL-backed state, total-count metadata, and backend filter compilation are intentionally not included. Add them in the consuming project if its dataset or API requires them.
 
@@ -182,6 +188,8 @@ Server-controlled pagination, URL-backed state, total-count metadata, and backen
 - Application-wide `/` path
 
 Cookie-session data is signed against tampering, not intended for storing secrets, and cannot be individually revoked without changing the signing secret. Projects requiring per-session revocation should replace it with server-side session storage.
+
+Route loaders and actions should use `getRequestSession(context)` to access the request session. Call `markSessionDirty(context)` after changing it, or `markSessionDestroyed(context)` to sign out. Root middleware commits or destroys the cookie once per request.
 
 React Router rejects action submissions whose `Origin` does not match the request origin. Projects that intentionally accept actions from other origins can configure `allowedActionOrigins` in `react-router.config.ts`. Do not duplicate this protection unless the deployment has additional requirements.
 
@@ -227,3 +235,26 @@ docker run --rm -p 3000:3000 -e AUTH_SECRET="replace_with_a_generated_secret" he
 ```
 
 The container listens on port `3000`. Demo authentication is disabled because the runtime uses `NODE_ENV=production`.
+
+> If your corporate network requires a proxy and the build fails while downloading pnpm or installing depedency, configure the build proxy as follows.
+> A request error alone does not confirm a proxy issue.
+>
+> ```env
+> # .env — replace with your actual corporate proxy
+> HTTP_PROXY=http://proxy.company.local:8080
+> HTTPS_PROXY=http://proxy.company.local:8080
+> NO_PROXY=localhost,127.0.0.1
+> ```
+>
+> ```yaml
+> # add this on build or install phase
+> args:
+>   HTTP_PROXY: "${HTTP_PROXY:-}"
+>   HTTPS_PROXY: "${HTTPS_PROXY:-}"
+>   NO_PROXY: "${NO_PROXY:-localhost,127.0.0.1}"
+> ```
+>
+> ```dockerfile
+> # add this on build or install command
+> NODE_USE_ENV_PROXY=1
+> ```

@@ -201,26 +201,6 @@ function useShallowStable<V>(value: V, equal: (a: V & object, b: V & object) => 
 }
 
 /* -------------------------------------------------------------------------- */
-/*                                  Context                                   */
-/* -------------------------------------------------------------------------- */
-
-/** The pre-split shape, merged, so `useCascader()` returns what it always did. */
-export interface CascaderContextValue<T = unknown>
-  extends CascaderActionsContextValue<T>, CascaderStateContextValue<T> {}
-
-/**
- * The cascader's internals, typed for the caller's own item payload.
- * @deprecated Reads BOTH halves, so a caller re-renders on every keystroke.
- * Prefer `useCascaderActions()` or `useCascaderState()`. Kept for compat.
- */
-export function useCascader<T = unknown>(): CascaderContextValue<T> {
-  const actions = useCascaderActions<T>();
-  const state = useCascaderState<T>();
-
-  return React.useMemo(() => ({ ...actions, ...state }), [actions, state]);
-}
-
-/* -------------------------------------------------------------------------- */
 /*                              Headless selection                            */
 /* -------------------------------------------------------------------------- */
 

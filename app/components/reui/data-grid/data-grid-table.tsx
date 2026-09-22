@@ -1673,14 +1673,24 @@ function DataGridTableBodyRows<TData extends object>({
 }
 
 /**
- * Memoized body rows: skip re-renders during active column resize.
- * Column widths update via CSS variables on the <table> element,
- * so the browser handles width changes without React re-renders.
+ * Memoized body rows: skip re-renders during active column resize when
+ * row data hasn't changed. Column widths update via CSS variables on
+ * the <table> element, so the browser handles width changes without
+ * React re-renders.
  */
-const MemoizedDataGridTableBodyRows = memo(
-  DataGridTableBodyRows,
-  (_prev, next) => !!next.table.state.columnResizing.isResizingColumn,
-) as typeof DataGridTableBodyRows;
+const MemoizedDataGridTableBodyRows = memo(DataGridTableBodyRows, (prev, next) => {
+  // During resize, only skip if the row data is identical
+  if (next.table.state.columnResizing.isResizingColumn) {
+    const prevRows = prev.table.getRowModel().rows;
+    const nextRows = next.table.getRowModel().rows;
+    if (prevRows.length !== nextRows.length) return false;
+    for (let i = 0; i < prevRows.length; i++) {
+      if (prevRows[i].id !== nextRows[i].id) return false;
+    }
+    return true;
+  }
+  return false;
+}) as typeof DataGridTableBodyRows;
 
 function DataGridTableHeader() {
   const { table, props } = useDataGrid();

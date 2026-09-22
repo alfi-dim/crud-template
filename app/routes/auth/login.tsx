@@ -1,5 +1,5 @@
 import { redirect, useActionData } from "react-router";
-import { getRequestSession, markSessionDirty } from "~/sessions.server";
+import { getRequestSession, markSessionDirty, requireCsrfToken } from "~/sessions.server";
 import { ConfigurableForm, type FormActionResult } from "~/components/form";
 import { loginField, loginSchema } from "~/routes/auth/lib/config";
 import type { Route } from "./+types/login";
@@ -9,6 +9,7 @@ import { z } from "zod";
 
 export async function action({ request, context }: Route.ActionArgs) {
   const input = await readJsonAction(request);
+  requireCsrfToken(request, context);
   const parsed = loginSchema.safeParse(input);
   if (!parsed.success) {
     const flattened = z.flattenError(parsed.error);

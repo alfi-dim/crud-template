@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { FunnelX, Settings2 } from "lucide-react";
+import { Settings2 } from "lucide-react";
 import {
   createColumnHelper,
   type ColumnDef,
   type ColumnHelper,
   type PaginationState,
-  type Row,
   type RowData,
   type SortingState,
   useTable,
@@ -39,12 +38,21 @@ import {
 import type { FilterField, FilterQuery } from "~/components/reui/filters/filters-types";
 import { isEmptyValue, stringifyValue, toFiniteNumber } from "~/lib/utils";
 import {
+  calendarDateKeyToDate,
+  compareCalendarDateKeys,
+  createCalendarDateNormalizer,
+  isCalendarDateKey,
+  parseExplicitTimestamp,
+  type CalendarDateNormalizer,
+} from "~/lib/calendar-date";
+import {
   createDataTableRowActionsColumn,
+  type DataTableRow,
   type DataTableRowActions,
   type RowActionHandler,
 } from "~/components/data-table-row-actions";
 
-export type DataTableRow<TData extends RowData> = Row<DataGridFeatures, TData>;
+export type { DataTableRow } from "~/components/data-table-row-actions";
 
 export type DataTableColumn<TData extends RowData> = ColumnDef<DataGridFeatures, TData, any>;
 
@@ -59,6 +67,8 @@ export interface DataTableProps<TData extends RowData> {
   searchKeys?: (keyof TData)[];
   searchPlaceholder?: string;
   initialPageSize?: number;
+  /** Timezone used to turn timestamp row values into calendar dates. */
+  dateTimeZone?: string;
   "aria-label"?: string;
   "aria-labelledby"?: string;
   enableSearch?: boolean;
@@ -93,8 +103,15 @@ function getValueAtPath(value: unknown, path: readonly string[]): unknown {
   return current;
 }
 
-function defaultFilterCondition<TData extends RowData>(row: TData, condition: FlatFilterCondition) {
+function defaultFilterCondition<TData extends RowData>(
+  row: TData,
+  condition: FlatFilterCondition,
+  normalizeCalendarDate: CalendarDateNormalizer,
+) {
   const rawValue = getValueAtPath(row, condition.path);
+  // stringifyValue is used only for text operators (contains, starts_with, etc.).
+  // Date operators receive rawValue directly because normalizeCalendarDate handles
+  // Date objects, numbers, and strings natively.
   const value = stringifyValue(rawValue);
   const normalizedValue = value.toLowerCase();
   const values = condition.values.map(String);
@@ -125,11 +142,48 @@ function defaultFilterCondition<TData extends RowData>(row: TData, condition: Fl
       matches = normalizedValues.some((entry) => normalizedValue.endsWith(entry));
       break;
     case "empty":
+      // null, undefined, "" are empty. Invalid date strings (e.g. "not-a-date")
+      // are non-empty but will fail date operator normalization.
       matches = isEmptyValue(rawValue);
       break;
     case "not_empty":
       matches = !isEmptyValue(rawValue);
       break;
+    case "date_is":
+    case "date_is_not":
+    case "date_before":
+    case "date_after":
+    case "date_on_or_before":
+    case "date_on_or_after": {
+      const current = normalizeCalendarDate(rawValue);
+      const expected = normalizeCalendarDate(condition.values[0]);
+      if (current === null || expected === null) return false;
+      const comparison = compareCalendarDateKeys(current, expected);
+      matches =
+        condition.operator === "date_is"
+          ? comparison === 0
+          : condition.operator === "date_is_not"
+            ? comparison !== 0
+            : condition.operator === "date_before"
+              ? comparison < 0
+              : condition.operator === "date_after"
+                ? comparison > 0
+                : condition.operator === "date_on_or_before"
+                  ? comparison <= 0
+                  : comparison >= 0;
+      break;
+    }
+    case "date_between":
+    case "date_not_between": {
+      const current = normalizeCalendarDate(rawValue);
+      const from = normalizeCalendarDate(condition.values[0]);
+      const to = normalizeCalendarDate(condition.values[1]);
+      if (current === null || from === null || to === null) return false;
+      const [min, max] = from <= to ? [from, to] : [to, from];
+      const within = current >= min && current <= max;
+      matches = condition.operator === "date_not_between" ? !within : within;
+      break;
+    }
     case "gt":
     case "gte":
     case "lt":
@@ -186,42 +240,68 @@ type TableDateProps = {
   fallback?: React.ReactNode;
 };
 
+const TABLE_DATE_FORMATTERS = new Map<string, Intl.DateTimeFormat>();
+const MAX_TABLE_DATE_FORMATTERS = 32;
+
+function getTableDateFormatter(locale: string, options: Intl.DateTimeFormatOptions) {
+  const key = `${locale}:${JSON.stringify(options)}`;
+  const cached = TABLE_DATE_FORMATTERS.get(key);
+  if (cached) {
+    TABLE_DATE_FORMATTERS.delete(key);
+    TABLE_DATE_FORMATTERS.set(key, cached);
+    return cached;
+  }
+
+  const formatter = new Intl.DateTimeFormat(locale, options);
+
+  if (TABLE_DATE_FORMATTERS.size >= MAX_TABLE_DATE_FORMATTERS) {
+    const oldest = TABLE_DATE_FORMATTERS.keys().next().value;
+    if (oldest !== undefined) TABLE_DATE_FORMATTERS.delete(oldest);
+  }
+
+  TABLE_DATE_FORMATTERS.set(key, formatter);
+  return formatter;
+}
+
 export function TableDate({
   value,
   variant = "date",
   locale = "en-GB",
-  timeZone,
+  timeZone = "UTC",
   fallback = "-",
 }: Readonly<TableDateProps>) {
   if (value === null || value === undefined || value === "") {
     return fallback;
   }
 
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) {
+  const calendarDate = typeof value === "string" && isCalendarDateKey(value);
+  const date = calendarDate ? calendarDateKeyToDate(value) : parseExplicitTimestamp(value);
+  if (!date) {
     return fallback;
   }
+
+  const effectiveTimeZone = calendarDate ? "UTC" : timeZone;
 
   const options: Intl.DateTimeFormatOptions =
     variant === "datetime"
       ? {
           dateStyle: "medium",
           timeStyle: "short",
-          timeZone,
+          timeZone: effectiveTimeZone,
         }
       : variant === "time"
         ? {
             timeStyle: "short",
-            timeZone,
+            timeZone: effectiveTimeZone,
           }
         : {
             dateStyle: "medium",
-            timeZone,
+            timeZone: effectiveTimeZone,
           };
-  const formatted = new Intl.DateTimeFormat(locale, options).format(date);
+  const formatted = getTableDateFormatter(locale, options).format(date);
 
   return (
-    <time dateTime={date.toISOString()} title={formatted}>
+    <time dateTime={calendarDate ? String(value) : date.toISOString()} title={formatted}>
       {formatted}
     </time>
   );
@@ -238,6 +318,7 @@ export function DataTable<TData extends RowData>({
   searchKeys,
   searchPlaceholder = "Search...",
   initialPageSize = 10,
+  dateTimeZone = "UTC",
   "aria-label": ariaLabel,
   "aria-labelledby": ariaLabelledBy,
   enableSearch = true,
@@ -248,7 +329,7 @@ export function DataTable<TData extends RowData>({
   loadingMessage = "Loading data...",
   emptyMessage = "No data available.",
   noResultsMessage = "No matching results.",
-  filterCondition = defaultFilterCondition,
+  filterCondition,
   getSearchValues,
   getRowId,
 }: Readonly<DataTableProps<TData>>) {
@@ -266,6 +347,17 @@ export function DataTable<TData extends RowData>({
   const [search, setSearch] = useState("");
 
   const [filterQuery, setFilterQuery] = useState<FilterQuery>(() => createFilterQuery());
+  const normalizeCalendarDate = useMemo(
+    () => createCalendarDateNormalizer(dateTimeZone),
+    [dateTimeZone],
+  );
+  const resolvedFilterCondition = useMemo(
+    () =>
+      filterCondition ??
+      ((row: TData, condition: FlatFilterCondition) =>
+        defaultFilterCondition(row, condition, normalizeCalendarDate)),
+    [filterCondition, normalizeCalendarDate],
+  );
 
   const filterIndex = useMemo(() => buildFilterIndex(filterFields), [filterFields]);
   const activeConditions = useMemo(
@@ -304,7 +396,7 @@ export function DataTable<TData extends RowData>({
       }
 
       if (enableFilters && activeConditions.length) {
-        return activeConditions.every((condition) => filterCondition(row, condition));
+        return activeConditions.every((condition) => resolvedFilterCondition(row, condition));
       }
 
       return true;
@@ -316,7 +408,7 @@ export function DataTable<TData extends RowData>({
     activeConditions,
     enableSearch,
     enableFilters,
-    filterCondition,
+    resolvedFilterCondition,
     getSearchValues,
   ]);
 
@@ -368,11 +460,6 @@ export function DataTable<TData extends RowData>({
 
   function handleFilterChange(query: FilterQuery) {
     setFilterQuery(query);
-    resetPage();
-  }
-
-  function clearFilters() {
-    setFilterQuery(createFilterQuery());
     resetPage();
   }
 
@@ -433,19 +520,12 @@ export function DataTable<TData extends RowData>({
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <div className="min-w-0 flex-1">
                 <Filters
-                  variant="basic"
                   fields={filterFields}
                   query={filterQuery}
                   onQueryChange={handleFilterChange}
+                  showClear
                 />
               </div>
-
-              {activeConditions.length > 0 && (
-                <Button variant="outline" onClick={clearFilters}>
-                  <FunnelX />
-                  Clear
-                </Button>
-              )}
             </div>
           )}
         </div>

@@ -86,7 +86,7 @@ export interface FilterFieldPickerProps {
 
 /**
  * Fully controlled, not draft-driven, so ONE picker serves both the create
- * popover (driven by the draft reducer) and an advanced row (its own state).
+ * popover, driven by the draft reducer.
  */
 export function FilterFieldPicker<V, O>({
   path,

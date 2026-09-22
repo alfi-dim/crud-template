@@ -36,15 +36,7 @@ export type FilterNode<V = unknown> = FilterRule<V> | FilterGroupNode<V>;
 /** A whole query. Always a group, so flat and nested are one code path. */
 export type FilterQuery<V = unknown> = FilterGroupNode<V>;
 
-export type FilterChangeReason =
-  | "add"
-  | "update"
-  | "remove"
-  | "duplicate"
-  | "negate"
-  | "reorder"
-  | "combinator"
-  | "clear";
+export type FilterChangeReason = "add" | "update" | "remove" | "duplicate" | "negate" | "clear";
 
 /** Second argument to `onQueryChange`, so nobody has to diff two trees. */
 export interface FilterChangeDetails<V = unknown, O = unknown> {
@@ -83,11 +75,17 @@ export interface FilterOperator {
 
 /**
  * Which built-in editor a field uses by DEFAULT: `editor` overrides it, and an
- * operator may override both. No date type on purpose - every product wants a
- * different date control, and a built-in one would add a calendar dependency to
- * every install, so a date ships as an `editor`.
+ * operator may override both. The built-in date editor uses the browser's
+ * native calendar control and stores timezone-free `YYYY-MM-DD` values.
  */
-export type FilterValueType = "text" | "number" | "range" | "select" | "multiselect" | "boolean";
+export type FilterValueType =
+  | "text"
+  | "number"
+  | "range"
+  | "date"
+  | "select"
+  | "multiselect"
+  | "boolean";
 
 export interface FilterOption<O = unknown> {
   value: string;
@@ -188,17 +186,6 @@ export interface FilterField<V = unknown, O = unknown> {
    */
   sortSelected?: "none" | "label" | "snapshot";
   /**
-   * This field's own validity check. Return a MESSAGE to mark the value cell
-   * invalid, or `null` / `undefined` / `false` when the value is fine. A string
-   * rather than a schema object keeps the primitive library-agnostic.
-   *
-   * ORDER MATTERS: the built-in checks run first and this runs only when they
-   * pass, so a validator never re-answers "is there a value at all". Not called
-   * for a valueless operator, nor for a rule whose field the schema no longer
-   * has, and shown only once the user has committed a value to that rule.
-   */
-  validate?: (context: FilterValidateContext<V, O>) => string | null | undefined | false;
-  /**
    * Reaches the value editor's PANEL. Merged last through tailwind-merge, so a
    * `w-*` here beats the default rather than losing to it on source order.
    *
@@ -293,18 +280,6 @@ export type FilterEditorRef<V = unknown, O = unknown> =
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   | FilterEditor<any, any>;
 
-/** Context for a custom builder empty state. Its actions ARE the footer's. */
-export interface FilterEmptyStateContext {
-  labels: FilterLabels;
-  /** The bar is locked. A custom state should not offer an action here. */
-  readOnly: boolean;
-  /** Which box the builder is in, for a state that wants to be denser inline. */
-  mode: "popover" | "inline";
-  /** Appends a condition and opens its attribute picker. */
-  addFilter: () => void;
-  addGroup: () => void;
-}
-
 export interface FilterValueDisplayContext<V = unknown, O = unknown> {
   value: V | undefined;
   /** `value` normalised to an array, so callbacks never re-derive it. */
@@ -372,47 +347,6 @@ export interface FilterDraft<V = unknown> {
 /** Every user facing string. `stepAnnouncement` alone is headless-only. */
 export interface FilterLabels {
   addFilter: string;
-  advancedFilter: string;
-  /** The line above the builder's rows, "In this view, show records". */
-  showRecords: string;
-  /** Empty-state title. The HINT below is withheld from a read-only bar. */
-  builderEmpty: string;
-  builderEmptyHint: string;
-  /** Appends a condition to the root group, from the builder's footer. */
-  addCondition: string;
-  addConditionGroup: string;
-  /** A group's own add button: the only keyboard route into a nested group. It
-   * NAMES a button that shows `addCondition`, so a translation must contain
-   * that string, which is what WCAG Label in Name asks for. */
-  addToGroup: string;
-  removeGroup: string;
-  wrapInGroup: string;
-  /** Dissolves a group into its parent. The inverse of `wrapInGroup`. */
-  ungroup: string;
-  /** Moves a condition to the root group. The keyboard path to that drag. */
-  moveToTopLevel: string;
-  /** Groups have no names, so they are numbered in document order, one-based. */
-  moveToGroup: (position: number) => string;
-  /** Accessible name of a row's or a group's drag handle. */
-  reorder: string;
-  /** Description on the drag handle, teaching the Alt+Arrow keyboard model. */
-  reorderHint: string;
-  groupAll: string;
-  groupAny: string;
-  groupPlaceholder: string;
-  /** Names a builder row. Depth is in it: indentation is invisible to AT. */
-  rowLabel: (condition: string, depth: number) => string;
-  groupLabel: (description: string, depth: number) => string;
-  groupAnnouncement: (added: boolean) => string;
-  /** Alt+Arrow is otherwise silent. The total says whether this is the end. */
-  reorderAnnouncement: (label: string, position: number, total: number) => string;
-  /** A cross-PARENT move; a plain reorder announcement cannot be told apart.
-   * `destination` is the group's own headline, or the bar's label at the top
-   * level. */
-  moveAnnouncement: (label: string, destination: string, position: number, total: number) => string;
-  clearAll: string;
-  /** Names a group's menu; distinct from `chipMenu`, which is per-rule. */
-  groupMenu: string;
   searchFields: string;
   searchOperators: string;
   searchOptions: string;
@@ -426,19 +360,8 @@ export interface FilterLabels {
   loadMore: string;
   error: string;
   retry: string;
-  /** Leading word before the first chip, where a combinator would otherwise go. */
-  where: string;
-  and: string;
-  or: string;
-  /** Accessible name of the combinator toggle between two chips. */
-  combinator: string;
-  /** Builder combinator toggle. English "and" wants 58.72px of a 64px track,
-   * so the name must CONTAIN the word: truncated, the pill shows "a...". */
-  combinatorLabel: (word: string) => string;
   duplicate: string;
   negate: string;
-  /** Chip kebab's route into the builder. Needs `onConvertToAdvanced`. */
-  convertToAdvanced: string;
   remove: string;
   /** Names a chip's menu button. The builder's row menu reads the same key. */
   chipMenu: (fieldLabel: string) => string;
@@ -481,53 +404,7 @@ export interface FilterLabels {
   rangeFrom: (fieldLabel: string) => string;
   rangeTo: (fieldLabel: string) => string;
   rangeSeparator: string;
+  rangeOrderError: string;
   /** Rendered for a `negated` rule, wrapping the operator label. */
   negated: (operatorLabel: string) => string;
-  /** Guidance ("Choose a condition"), not diagnosis: shown three ways over. */
-  issueOperator: string;
-  issueValue: string;
-  issueRange: string;
-  issueRangeOrder: string;
-  issueEmptyGroup: string;
-  /** The roll-up, and the name of the button that jumps to the first issue. */
-  issueSummary: (count: number) => string;
-}
-
-/* -------------------------------------------------------------------------- */
-/*                                 Validation                                 */
-/* -------------------------------------------------------------------------- */
-
-/** Why a node cannot run as written. `collectFilterIssues` produces these. */
-export type FilterIssueReason =
-  | "missing-operator"
-  | "missing-value"
-  | "incomplete-range"
-  | "reversed-range"
-  | "empty-group"
-  /** The one reason whose message is the validator's, not `FilterLabels`. */
-  | "custom";
-
-export interface FilterIssue {
-  nodeId: string;
-  /** WHICH cell to mark. Two reasons share the value cell; groups have none. */
-  column: "operator" | "value" | "group";
-  reason: FilterIssueReason;
-  /** Set only for `reason: "custom"`; the rest look up `FilterLabels`. */
-  message?: string;
-}
-
-/**
- * What a field's `validate` is handed. Mirrors `FilterValueDisplayContext`.
- * SYNCHRONOUS: issues are collected in a pure memo pass, so a check that has to
- * hit a server belongs in the consumer's own submit path.
- */
-export interface FilterValidateContext<V = unknown, O = unknown> {
-  value: V | undefined;
-  values: unknown[];
-  field: FilterField<V, O>;
-  operator: FilterOperator;
-  /** How many values this operator takes, already resolved. */
-  arity: FilterOperatorArity;
-  rule: FilterRule<V>;
-  labels: FilterLabels;
 }

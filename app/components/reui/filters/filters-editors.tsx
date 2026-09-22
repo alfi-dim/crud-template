@@ -29,6 +29,7 @@ import {
 } from "~/components/reui/filters/filters-lib";
 import type {
   AnyFilterEditor,
+  FilterEditorHost,
   FilterEditorProps,
   FilterEditorRegistry,
   FilterField,
@@ -41,6 +42,7 @@ import type {
 } from "~/components/reui/filters/filters-types";
 
 import { cn } from "~/lib/utils";
+import { isCalendarDateKey } from "~/lib/calendar-date";
 import { Button } from "~/components/ui/button";
 import { ButtonGroup } from "~/components/ui/button-group";
 import { Input } from "~/components/ui/input";
@@ -306,11 +308,13 @@ function EditorPanel({ children, className }: { children: React.ReactNode; class
 function EditorFooter({
   onCancel,
   onCommit,
+  commitDisabled = false,
   labels,
   host,
 }: Pick<FilterEditorProps, "labels" | "host"> & {
   onCancel: () => void;
   onCommit: () => void;
+  commitDisabled?: boolean;
 }) {
   // The ONE ladder, not a hardcoded rung: `size="sm"` here measured 4px short
   // of the bar's own controls at `size="default"` in all eight styles.
@@ -324,7 +328,7 @@ function EditorFooter({
       <Button variant="ghost" size={sizes.button} onClick={onCancel}>
         {labels.discard}
       </Button>
-      <Button size={sizes.button} onClick={onCommit}>
+      <Button size={sizes.button} disabled={commitDisabled} onClick={onCommit}>
         {labels.apply}
       </Button>
     </div>
@@ -377,7 +381,12 @@ function EditorCommitButtons({
   );
 }
 
-function useCommitKeys(commit: () => void, cancel: () => void) {
+function useCommitKeys(
+  commit: () => void,
+  cancel: () => void,
+  back?: () => void,
+  host?: FilterEditorHost,
+) {
   return React.useCallback(
     (event: React.KeyboardEvent) => {
       if (event.key === "Enter" && !event.nativeEvent.isComposing) {
@@ -389,10 +398,12 @@ function useCommitKeys(commit: () => void, cancel: () => void) {
         event.preventDefault();
         // Stop here so a surrounding dialog does not also close.
         event.stopPropagation();
-        cancel();
+        // In create mode, Escape steps back one step; in amend mode, it closes.
+        if (host === "create" && back) back();
+        else cancel();
       }
     },
-    [commit, cancel],
+    [commit, cancel, back, host],
   );
 }
 
@@ -405,12 +416,13 @@ export function FilterTextEditor<V, O>({
   onValueChange,
   commit,
   cancel,
+  back,
   autoFocusProps,
   labels,
   host,
   field,
 }: FilterEditorProps<V, O>) {
-  const onKeyDown = useCommitKeys(() => commit(), cancel);
+  const onKeyDown = useCommitKeys(() => commit(), cancel, back, host);
   return (
     // A width, not shrink-to-fit: the popover is `w-auto`, so an unsized box
     // changes width between the hosts. `w-72` is measured - it holds about 23
@@ -445,12 +457,13 @@ export function FilterNumberEditor<V, O>({
   onValueChange,
   commit,
   cancel,
+  back,
   autoFocusProps,
   labels,
   host,
   field,
 }: FilterEditorProps<V, O>) {
-  const onKeyDown = useCommitKeys(() => commit(), cancel);
+  const onKeyDown = useCommitKeys(() => commit(), cancel, back, host);
   return (
     // Deliberately not the text editor's `w-72`: number values are short by
     // construction, and a wide box around "42" is the opposite defect.
@@ -481,13 +494,14 @@ export function FilterRangeEditor<V, O>({
   onValueChange,
   commit,
   cancel,
+  back,
   autoFocusProps,
   labels,
   host,
   field,
 }: FilterEditorProps<V, O>) {
   const tuple = (Array.isArray(value) ? value : []) as unknown[];
-  const onKeyDown = useCommitKeys(() => commit(), cancel);
+  const onKeyDown = useCommitKeys(() => commit(), cancel, back, host);
 
   const update = (index: 0 | 1, raw: string) => {
     const next = [tuple[0], tuple[1]];
@@ -516,6 +530,114 @@ export function FilterRangeEditor<V, O>({
         />
       </div>
       <EditorFooter host={host} labels={labels} onCancel={cancel} onCommit={() => commit()} />
+    </EditorPanel>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                    Date                                    */
+/* -------------------------------------------------------------------------- */
+
+export function FilterDateEditor<V, O>({
+  value,
+  onValueChange,
+  commit,
+  cancel,
+  back,
+  autoFocusProps,
+  labels,
+  host,
+  field,
+}: FilterEditorProps<V, O>) {
+  const onKeyDown = useCommitKeys(() => commit(), cancel, back, host);
+  return (
+    <EditorPanel className={cn("w-56 min-w-0", field.className)}>
+      <ButtonGroup className={EDITOR_FIELD_GROUP}>
+        <Input
+          {...autoFocusProps}
+          type="date"
+          value={typeof value === "string" ? value : ""}
+          aria-label={field.label}
+          onChange={(event) =>
+            onValueChange((event.target.value === "" ? undefined : event.target.value) as V)
+          }
+          onKeyDown={onKeyDown}
+        />
+        {host === "create" ? null : (
+          <EditorCommitButtons labels={labels} onCancel={cancel} onCommit={() => commit()} />
+        )}
+      </ButtonGroup>
+    </EditorPanel>
+  );
+}
+
+export function FilterDateRangeEditor<V, O>({
+  value,
+  onValueChange,
+  commit,
+  cancel,
+  back,
+  autoFocusProps,
+  labels,
+  host,
+  field,
+}: FilterEditorProps<V, O>) {
+  const errorId = React.useId();
+  const tuple = (Array.isArray(value) ? value : []) as unknown[];
+  const from = typeof tuple[0] === "string" ? tuple[0] : "";
+  const to = typeof tuple[1] === "string" ? tuple[1] : "";
+  const fromValid = isCalendarDateKey(from);
+  const toValid = isCalendarDateKey(to);
+  const reversed = fromValid && toValid && from > to;
+  const commitIfValid = () => {
+    if (!reversed) commit();
+  };
+  const onKeyDown = useCommitKeys(commitIfValid, cancel, back, host);
+
+  const update = (index: 0 | 1, nextValue: string) => {
+    const next = [tuple[0], tuple[1]];
+    next[index] = nextValue === "" ? undefined : nextValue;
+    onValueChange(next as V);
+  };
+
+  return (
+    <EditorPanel className={field.className}>
+      <div className="flex items-center gap-1.5">
+        <Input
+          {...autoFocusProps}
+          type="date"
+          value={from}
+          max={toValid ? to : undefined}
+          aria-label={labels.rangeFrom(field.label)}
+          aria-invalid={reversed}
+          aria-describedby={reversed ? errorId : undefined}
+          onChange={(event) => update(0, event.target.value)}
+          onKeyDown={onKeyDown}
+        />
+        <span className="text-muted-foreground text-xs">{labels.rangeSeparator}</span>
+        <Input
+          type="date"
+          value={to}
+          min={fromValid ? from : undefined}
+          aria-label={labels.rangeTo(field.label)}
+          aria-invalid={reversed}
+          aria-describedby={reversed ? errorId : undefined}
+          onChange={(event) => update(1, event.target.value)}
+          onKeyDown={onKeyDown}
+        />
+      </div>
+      {reversed ? (
+        <p id={errorId} role="alert" className="text-destructive text-sm">
+          {labels.rangeOrderError}
+        </p>
+      ) : null}
+      <EditorFooter
+        host={host}
+        labels={labels}
+        onCancel={cancel}
+        onCommit={commitIfValid}
+        commitDisabled={reversed}
+      />
     </EditorPanel>
   );
 }
@@ -1215,6 +1337,8 @@ export const DEFAULT_FILTER_EDITORS: FilterEditorRegistry = {
   text: FilterTextEditor,
   number: FilterNumberEditor,
   range: FilterRangeEditor,
+  date: FilterDateEditor,
+  dateRange: FilterDateRangeEditor,
   select: FilterSelectEditor,
   multiselect: FilterMultiSelectEditor,
   boolean: FilterBooleanEditor,
@@ -1241,6 +1365,9 @@ export function resolveFilterEditor<V, O>(
 
   const arity = operator?.arity ?? "one";
   if (arity === "none") return undefined;
+  if (field.type === "date") {
+    return arity === "range" ? editors.dateRange : editors.date;
+  }
   if (arity === "range") return editors.range;
   if (arity === "many") {
     // An option-backed field gets checkboxes; anything else receives an array.

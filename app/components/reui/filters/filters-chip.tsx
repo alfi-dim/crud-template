@@ -11,7 +11,6 @@ import {
   useFilterFocusEmpty,
   useFilterFocusStore,
   useFilterRender,
-  useFilterReorderable,
 } from "~/components/reui/filters/filters-context";
 import {
   FilterMenu,
@@ -33,11 +32,9 @@ import {
   operatorTakesValue,
   visibleFilterOperators,
 } from "~/components/reui/filters/filters-operators";
-import { findFilterNode, isFilterGroup } from "~/components/reui/filters/filters-query";
 import type {
   FilterEditorProps,
   FilterField,
-  FilterGroupNode,
   FilterOperator,
   FilterRule,
 } from "~/components/reui/filters/filters-types";
@@ -55,18 +52,15 @@ import { Popover, PopoverContent, PopoverTrigger } from "~/components/ui/popover
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "~/components/ui/tooltip";
 import {
   ChevronRightIcon,
-  CornerDownRightIcon,
   CopyIcon,
   ArrowLeftRightIcon,
-  LayersIcon,
-  SlidersHorizontalIcon,
   Trash2Icon,
   XIcon,
   EllipsisVerticalIcon,
 } from "lucide-react";
 
-/** Which part of the chip a pointer or key is aimed at. No `field`: the chip's
- *  attribute segment is display only, and only the builder re-picks one. */
+/** Which part of the chip a pointer or key is aimed at. The attribute segment
+ *  is display only. */
 type ChipSegment = "operator" | "value" | "menu";
 
 /** The ref half of `autoFocusProps`: a CALLBACK ref, the one shape an editor
@@ -93,7 +87,13 @@ function defaultValueDisplay<V>(
 
   if (getFilterArity(operator) === "range" && Array.isArray(value)) {
     const [from, to] = value as unknown[];
-    return labels.valueRange(String(from ?? ""), String(to ?? ""));
+    const fmtDate = (v: unknown) => {
+      if (typeof v === "string" && v.length === 10 && v[4] === "-" && v[7] === "-") {
+        return `${v.slice(8, 10)}-${v.slice(5, 7)}-${v.slice(0, 4)}`;
+      }
+      return String(v ?? "");
+    };
+    return labels.valueRange(fmtDate(from), fmtDate(to));
   }
 
   if (Array.isArray(value)) {
@@ -227,8 +227,7 @@ export function useFilterRuleDisplay<V, O>(
   const pathText = formatFilterPath(actions.index, rule.path, actions.labels.pathSeparator);
 
   const chain = getFilterFieldChain(actions.index, rule.path);
-  // The CASCADER's collapser, from the actions context rather than per host, so
-  // a deep path reads the same on a chip and in a builder row.
+  // The cascader's collapser keeps deep paths compact without changing names.
   const segments = collapseFilterPath(chain, {
     maxSegments: actions.maxPathSegments,
     collapse: actions.pathCollapse,
@@ -498,9 +497,7 @@ export function FilterValuePopover<V, O>({
   );
 }
 
-/* A chip's ATTRIBUTE is fixed once the chip exists: no field popover here. A
-   new field invalidates the operator and the value, so "amending" threw both
-   away. The builder keeps its picker, where a row reads as a form. */
+/* A chip's ATTRIBUTE is fixed once the chip exists: no field popover here. */
 
 /** The condition menu, and the step after it. The list is the cascader run
  *  flat: the old hand-rolled one marked the keyboard HIGHLIGHT with
@@ -625,8 +622,7 @@ export function FilterOperatorPopover<V, O>({
               return;
             }
             const chosen = getFilterOperator(operators, value);
-            /* BUILDING versus AMENDING, the same fork the advanced row draws
-               at its field step. A rule reaches this menu with no operator
+            /* BUILDING versus AMENDING. A rule reaches this menu with no operator
                exactly once, while it is being added, and only then is the
                value the step after this one. Re-picking the condition on a
                rule that already has one is an edit of that one cell: it
@@ -670,91 +666,8 @@ export function FilterOperatorPopover<V, O>({
   );
 }
 
-/** The keyboard path to a CROSS-GROUP move: Alt+Arrow reorders within the
- *  owning group only and Wrap creates a NEW group, so the drag layer's
- *  cross-group move had no keyboard parity. Numbered in document order. */
-export function FilterMoveToMenuItems({ nodeId }: { nodeId: string }) {
-  const actions = useFilterActions();
-  // A menu ITEM takes the native word: both twins already make `disabled`
-  // roving-focusable and `aria-disabled`.
-  const reorderable = useFilterReorderable();
-  const locked = isFilterLocked(actions);
-  // Read at render time: the menu's content mounts when the menu opens, so
-  // this is the tree the user is looking at.
-  const query = actions.getQuery();
-  const found = findFilterNode(query, nodeId);
-  if (!found || !found.parent) return null;
-
-  const destinations: { id: string; label: string; size: number }[] = [];
-  if (found.parent.id !== query.id) {
-    destinations.push({
-      id: query.id,
-      label: actions.labels.moveToTopLevel,
-      size: query.rules.length,
-    });
-  }
-
-  let position = 0;
-  // `inside` suppresses the PUSH and not the walk, so the numbering stays
-  // document order rather than renumbering every group after this one. Counted
-  // before the exclusions for the same reason: the current parent is not
-  // offered but still holds its number, so the numbering is stable whichever
-  // row's menu is open.
-  const visit = (group: FilterGroupNode<unknown>, inside: boolean) => {
-    for (const child of group.rules) {
-      if (!isFilterGroup(child)) continue;
-      position += 1;
-      // Itself and everything under it: `moveFilterNodeTo` already refuses that
-      // move - it would detach the subtree and leave a cycle - so offering it
-      // would be a menu row that quietly does nothing.
-      const within = inside || child.id === nodeId;
-      if (!within && child.id !== found.parent!.id) {
-        destinations.push({
-          id: child.id,
-          label: actions.labels.moveToGroup(position),
-          size: child.rules.length,
-        });
-      }
-      visit(child, within);
-    }
-  };
-  visit(query, false);
-
-  if (destinations.length === 0) return null;
-
-  // The THIRD route into a move, gated on the same switch as the grip and
-  // Alt+Arrow: ungated, a builder that draws no handle still reordered here.
-  if (!reorderable) return null;
-
-  return (
-    <>
-      {destinations.map((destination) => (
-        <DropdownMenuItem
-          key={destination.id}
-          disabled={locked}
-          onClick={() => actions.moveNodeTo(nodeId, destination.id, destination.size)}
-        >
-          {/* A bend into the destination: movement, not duplication or nesting. */}
-          <CornerDownRightIcon aria-hidden="true" />
-          <span className={FILTER_MENU_LABEL_CLASS}>{destination.label}</span>
-        </DropdownMenuItem>
-      ))}
-    </>
-  );
-}
-
-/** The per-rule actions, without the trigger: the chip's kebab and a builder
- *  row's kebab act on the same rule. `allowGrouping` is the CHROME's answer;
- *  "Convert to advanced filter" is the CONSUMER's, and hides itself there. */
-export function FilterRuleMenuItems({
-  ruleId,
-  /** Offer "Wrap in condition group". Off for the chip row, which cannot draw
-   *  a group; on in the builder, the only way to nest without dragging. */
-  allowGrouping = false,
-}: {
-  ruleId: string;
-  allowGrouping?: boolean;
-}) {
+/** The per-rule actions, without the trigger, for custom chip menus. */
+export function FilterRuleMenuItems({ ruleId }: { ruleId: string }) {
   const actions = useFilterActions();
   // Gated here as well as at the trigger, because this is EXPORTED: a consumer
   // composing their own menu gets rows that say they are unavailable.
@@ -773,25 +686,6 @@ export function FilterRuleMenuItems({
         <ArrowLeftRightIcon aria-hidden="true" />
         <span className={FILTER_MENU_LABEL_CLASS}>{actions.labels.negate}</span>
       </DropdownMenuItem>
-      {allowGrouping ? (
-        <DropdownMenuItem disabled={locked} onClick={() => actions.wrapNodeInGroup(ruleId)}>
-          {/* Layers: braces read as grouping in only three of the five sets. */}
-          <LayersIcon aria-hidden="true" />
-          <span className={FILTER_MENU_LABEL_CLASS}>{actions.labels.wrapInGroup}</span>
-        </DropdownMenuItem>
-      ) : null}
-      {allowGrouping ? <FilterMoveToMenuItems nodeId={ruleId} /> : null}
-      {/* OPTIONAL, and gated on both halves of "would this do anything": the
-          handler is the consumer's opt-in, and an already-advanced bar has
-          nothing to convert. NOT gated on `locked`: it changes no query, is
-          handed no mutator, and the shipped kebab will not open while locked. */}
-      {actions.convertToAdvanced && actions.variant !== "advanced" ? (
-        <DropdownMenuItem onClick={() => actions.convertToAdvanced?.()}>
-          {/* Sliders: the one "advanced settings" glyph in all five sets. */}
-          <SlidersHorizontalIcon aria-hidden="true" />
-          <span className={FILTER_MENU_LABEL_CLASS}>{actions.labels.convertToAdvanced}</span>
-        </DropdownMenuItem>
-      ) : null}
       <DropdownMenuItem
         variant="destructive"
         disabled={locked}
@@ -825,9 +719,7 @@ function FilterChipImpl<V, O>({ rule, index }: FilterChipProps<V>) {
   // height, so the kebab's rung is the pill's. The RADIUS survives because
   // every style whose `icon-sm` rounds differently re-pins it in a group.
   const sizes = filterControlSizes(actions);
-  // The kebab is CONTROLLED so it can refuse to open: every mutating row
-  // behind it is gated. That puts "Convert to advanced filter" out of reach
-  // while locked; a consumer-composed menu still draws it.
+  // The kebab is CONTROLLED so it can refuse to open while locked.
   const [menuOpen, setMenuOpen] = React.useState(false);
   // Exactly one chip is in the tab order at a time. Before anything has been
   // focused that is the first chip, so Tab reaches the row in one press.
@@ -1016,8 +908,7 @@ function FilterChipImpl<V, O>({ rule, index }: FilterChipProps<V>) {
         >
           <EllipsisVerticalIcon />
         </DropdownMenuTrigger>
-        {/* The SAME sizing the builder's menus use, from one constant: a menu
-            that cuts "Convert to group" in one chrome is one defect twice. */}
+        {/* Shared menu sizing keeps custom chip menus aligned with this one. */}
         <DropdownMenuContent align="end" className={cn(FILTER_MENU_CLASS, actions.menuClassName)}>
           <FilterRuleMenuItems ruleId={rule.id} />
         </DropdownMenuContent>

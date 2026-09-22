@@ -2,12 +2,9 @@ import * as React from "react";
 import type { FilterDraftAction } from "~/components/reui/filters/filters-draft";
 import type { FilterPathCollapse } from "~/components/reui/filters/filters-lib";
 import type {
-  FilterCombinator,
   FilterDraft,
-  FilterDraftStep,
   FilterEditor,
   FilterEditorRegistry,
-  FilterEmptyStateContext,
   FilterField,
   FilterIndex,
   FilterLabels,
@@ -22,9 +19,7 @@ import type {
 /** Four publishing channels, not one, so a chip never re-renders at the rate
  *  of the fastest: `actions` republishes on a schema, labels or config change,
  *  `state` on every query edit and keystroke, `render` on a `renderValue` /
- *  `renderChip` identity change, `focus` on every arrow key. The reorder flag
- *  and the row-state store further down are contexts too, but not channels the
- *  query is published through. */
+ *  `renderChip` identity change, and `focus` on every arrow key. */
 
 /* -------------------------------------------------------------------------- */
 /*                                   Actions                                  */
@@ -52,24 +47,13 @@ export interface FilterActionsContextValue<V = unknown, O = unknown> {
   /** Readable and navigable, but not changeable. See `isFilterLocked`. */
   readOnly: boolean;
 
-  /** Which chrome is drawing, so a chip kebab can hide its convert row. */
-  variant: "basic" | "advanced";
-
   /** Consumer classes for the menus and the field picker, merged AFTER the
    *  primitive's own defaults so a consumer `w-*` wins through tailwind-merge
-   *  rather than on source order. On the context: four chromes mount the same
-   *  menu, and a per-chrome prop is set in four places and missed in a fifth. */
+   *  rather than on source order. */
   menuClassName: string | undefined;
   fieldPickerClassName: string | undefined;
 
-  /** Turns on the chip kebab's "Convert to advanced filter" row: present means
-   *  offered. A callback with no boolean beside it, since only the consumer
-   *  can switch chromes. Changes no query, so it skips the mutation boundary,
-   *  which is safe only because it is handed no setter: a consumer's handler
-   *  has no route to the query at all. */
-  convertToAdvanced: (() => void) | undefined;
-
-  /** Path shortening, published so BOTH chromes render the same path. */
+  /** Path shortening for nested field paths. */
   pathCollapse: FilterPathCollapse;
   maxPathSegments: number;
 
@@ -82,45 +66,16 @@ export interface FilterActionsContextValue<V = unknown, O = unknown> {
   /** Value-to-label store shared by every `useFilterOptions` under the root. */
   resolution: FilterResolutionStore;
 
-  /** Appends a rule. Defaults to the ROOT group. The parent is a parameter
-   *  rather than always the root because a nested group's add button is the
-   *  keyboard path into that group, and routing it through the root then
-   *  moving it would be two edits and two announcements for one action. */
-  addRule: (rule: FilterRule<V>, parentId?: string) => void;
-  /** Appends an empty group and returns its id, so the caller can focus it.
-   *  Returns an EMPTY STRING when the bar is disabled or read only, the one
-   *  mutator that has to report its refusal: focusing a group that was never
-   *  created strands the tab stop. `""` rather than `string | null` keeps the
-   *  callers that already test the id honest without widening a published
-   *  signature. */
-  addGroup: (parentId?: string, combinator?: FilterCombinator) => string;
+  /** Appends a rule to the root group. */
+  addRule: (rule: FilterRule<V>) => void;
   updateRule: (id: string, updates: Partial<Omit<FilterRule<V>, "id" | "type">>) => void;
-  /** Removes a rule OR a group, and prunes the groups that empties. Node-level
-   *  rather than rule-level because a chip only ever removes a rule, while a
-   *  builder row's trash and a group header's trash are the same button on two
-   *  kinds of node. */
+  /** Removes a rule and prunes any group it empties. */
   removeNode: (id: string) => void;
   duplicateNode: (id: string) => void;
   negateRule: (id: string) => void;
-  /** Reorders within the node's own parent. Out of range moves are no-ops. */
-  moveNode: (id: string, delta: number) => void;
-  /** Moves a node into another group, at an index. The drag-and-drop half. */
-  moveNodeTo: (id: string, parentId: string, index: number) => void;
-  /** Copies a node into another group, at an index. The Alt-drag half, apart
-   *  from `duplicateNode` (which copies BESIDE, with no destination): the two
-   *  composed would emit two queries for one gesture, and a controlled
-   *  consumer would persist a tree the user never asked for. */
-  copyNodeTo: (id: string, parentId: string, index: number) => void;
-  /** Nests one node in a new group. The keyboard half of the same idea. */
-  wrapNodeInGroup: (id: string, combinator?: FilterCombinator) => void;
-  /** Dissolves a group into its parent. The inverse of `wrapNodeInGroup`. */
-  unwrapGroup: (groupId: string) => void;
-  setCombinator: (groupId: string, combinator: FilterCombinator) => void;
-  toggleCombinator: (groupId: string) => void;
   clearQuery: () => void;
 
   openCreate: () => void;
-  openAmend: (id: string, step: FilterDraftStep) => void;
   closeDraft: () => void;
   dispatchDraft: (action: FilterDraftAction<V>) => void;
 
@@ -132,7 +87,6 @@ export interface FilterActionsContextValue<V = unknown, O = unknown> {
 
   /** Getters for event handlers, so a handler never closes over stale state. */
   getQuery: () => FilterQuery<V>;
-  getDraft: () => FilterDraft<V> | null;
   /** Fresh id from the SSR-safe factory. */
   nextId: () => string;
 }
@@ -145,16 +99,14 @@ export interface FilterActionsContextValue<V = unknown, O = unknown> {
  *  the native attribute: not operable, out of the tab order. `readOnly` blocks
  *  MUTATION and preserves NAVIGATION, because a read-only bar exists so a
  *  keyboard or screen reader user can walk the chips and find out what the
- *  view is filtered by. Collapsing the two once put the native attribute on
- *  all thirteen advanced-builder cell controls while the roving tab stop sat
- *  on a disabled element, so not one row could be reached from the keyboard.
+ *  view is filtered by.
  *
  *  So a mutating control keeps its tab stop and wears `aria-disabled` plus
  *  `data-readonly` (`filterReadOnlyProps`), this repo's convention for
  *  "present, focusable, not operable". `aria-readonly` is never used, being
  *  disallowed on the button, group and toolbar roles, so the BAR says it in
- *  prose through `labels.readOnly`. The refusal itself is enforced once, where
- *  all fourteen query writes pass through `emit` in `filters.tsx`. */
+ *  prose through `labels.readOnly`. The refusal itself is enforced once at the
+ *  mutation boundary in `filters.tsx`. */
 export function isFilterLocked(state: { disabled: boolean; readOnly: boolean }): boolean {
   return state.disabled || state.readOnly;
 }
@@ -176,7 +128,7 @@ export function filterReadOnlyProps(state: { disabled: boolean; readOnly: boolea
  *  shadcn ships a separate ladder for labelled and for icon-only buttons, and
  *  pairing them keeps a row's kebab as tall as the cell beside it. */
 export interface FilterControlSizes {
-  /** Labelled buttons: the row cells, both triggers, the panel footer. */
+  /** Labelled buttons, including the Add filter trigger. */
   button: "sm" | "default";
   /** Icon-only buttons, and also the CHIP's height: a chip is an
    *  `items-stretch` `ButtonGroup` and no style gives its text segment a
@@ -185,10 +137,8 @@ export interface FilterControlSizes {
   icon: "icon-sm" | "icon";
 }
 
-/** ONE ladder, keyed off `size`, for every control the chrome renders, because
- *  the alternative already happened: five advanced-builder cells took
- *  `actions.size` while seven sites hardcoded `icon-sm` and three `sm`, giving
- *  one row three heights. Nothing here is a pixel - each value is a shadcn
+/** ONE ladder, keyed off `size`, for every control the chrome renders. Nothing
+ *  here is a pixel - each value is a shadcn
  *  size NAME that `Button` resolves per style, since the control-height ladder
  *  is per style (nova 7/8, sera 9/10, mira 6/7, and so on), and the glyph size
  *  rides the same name, so pinning an icon size in here would fight the style
@@ -224,7 +174,7 @@ export function useFilterActions<V = unknown, O = unknown>(): FilterActionsConte
 /* -------------------------------------------------------------------------- */
 
 /** Volatile by construction: typing one character into a value editor
- *  republishes it. Subscribe from the bar and the panel, never from a chip. */
+ *  republishes it. Subscribe from the bar, never from a chip. */
 export interface FilterStateContextValue<V = unknown> {
   query: FilterQuery<V>;
   draft: FilterDraft<V> | null;
@@ -259,7 +209,6 @@ export function useFilterState<V = unknown>(): FilterStateContextValue<V> {
 export interface FilterRenderContextValue<V = unknown, O = unknown> {
   renderValue?: (context: FilterValueDisplayContext<V, O>) => React.ReactNode;
   renderChip?: (rule: FilterRule<V>) => React.ReactNode;
-  renderEmpty?: (context: FilterEmptyStateContext) => React.ReactNode;
 }
 
 const FilterRenderContext = React.createContext<FilterRenderContextValue>({});
@@ -275,21 +224,8 @@ export function useFilterRender<V = unknown, O = unknown>(): FilterRenderContext
 /** Which chip currently owns the row's single tab stop. */
 export interface FilterFocus {
   id: string | null;
-  /** Which cell inside that row, for restoring focus after an edit. A chip
-   *  draws only `field`, `operator`, `value` and `menu`; the rest are advanced
-   *  builder cells, where a GROUP header is a row too (its `field` is the
-   *  combinator sentence). One union, because the chromes share the store. */
-  segment:
-    | "combinator"
-    | "field"
-    | "operator"
-    | "value"
-    | "add"
-    | "menu"
-    | "ungroup"
-    | "remove"
-    | "drag"
-    | null;
+  /** Which editable chip segment should receive focus after an edit. */
+  segment: "operator" | "value" | "menu" | null;
   /** Open that segment's popover, not merely focus it. Picking a field commits
    *  the rule straight away and the chip appears with no condition yet, so the
    *  operator menu has to open ON THE CHIP without a second click. */
@@ -347,131 +283,6 @@ const FALLBACK_FOCUS_STORE = createFilterFocusStore();
 
 const FilterFocusContext = React.createContext<FilterFocusStore>(FALLBACK_FOCUS_STORE);
 
-/* -------------------------------------------------------------------------- */
-/*                                 Reordering                                 */
-/* -------------------------------------------------------------------------- */
-
-/** Whether rows may be reordered at all, published once for the subtree. Two
- *  files have to agree about it: the builder gates the grip and Alt+Arrow,
- *  while the row and group menus commit the same mutator by a third route, so
- *  gating only the builder left it off for a pointer and on from a menu. */
-const FilterReorderContext = React.createContext(false);
-
-export const FilterReorderProvider = FilterReorderContext.Provider;
-
-export function useFilterReorderable(): boolean {
-  return React.useContext(FilterReorderContext);
-}
-
-/* -------------------------------------------------------------------------- */
-/*                                   Touched                                  */
-/* -------------------------------------------------------------------------- */
-
-/** Which rules the user has actually edited the VALUE of, which decides WHEN
- *  an error may appear: "Add filter" mints a row with no value, so flagging
- *  every invalid row turns the builder red before the user did anything wrong.
- *  An issue is still COLLECTED for every rule - the footer count,
- *  `onQueryChange` and tree validity do not change - and only DRAWN once the
- *  user has committed a value. An external store for the focus store's reason,
- *  keyed by rule id and never pruned: a stale id costs one Set entry, and
- *  reconciling against the query on every commit is hot-path work. */
-export interface FilterRowStateStore {
-  subscribe: (listener: () => void) => () => void;
-  /** Bumped on every write. What a memo depends on, since the Sets are mutable. */
-  version: () => number;
-  /** Whether this rule has had a value committed to it by the user. */
-  has: (id: string) => boolean;
-  mark: (id: string) => void;
-  /** Starts this rule over. Changing a rule's ATTRIBUTE resets its operator
-   *  and its value, so it has to reset this too, or the row stays warned about
-   *  a value that no longer exists on a field the user navigated away from. */
-  unmark: (id: string) => void;
-  /** Whether this rule is still being CREATED: minted by Add filter and not
-   *  yet given an attribute. The row enters the query with a guessed field to
-   *  keep the tree valid, so while pending the builder draws only that cell. */
-  isPending: (id: string) => boolean;
-  markPending: (id: string) => void;
-  /** The attribute was chosen. The rest of the row appears. */
-  resolvePending: (id: string) => void;
-  /** Forgets everything. The bar's own Clear all, and a whole-tree replace. */
-  reset: () => void;
-}
-
-export function createFilterRowStateStore(): FilterRowStateStore {
-  const touched = new Set<string>();
-  const pending = new Set<string>();
-  const listeners = new Set<() => void>();
-  let version = 0;
-  const notify = () => {
-    version += 1;
-    for (const listener of listeners) listener();
-  };
-  return {
-    subscribe: (listener) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    version: () => version,
-    has: (id) => touched.has(id),
-    mark: (id) => {
-      if (touched.has(id)) return;
-      touched.add(id);
-      notify();
-    },
-    unmark: (id) => {
-      if (!touched.delete(id)) return;
-      notify();
-    },
-    isPending: (id) => pending.has(id),
-    markPending: (id) => {
-      if (pending.has(id)) return;
-      pending.add(id);
-      notify();
-    },
-    resolvePending: (id) => {
-      if (!pending.delete(id)) return;
-      notify();
-    },
-    reset: () => {
-      if (touched.size === 0 && pending.size === 0) return;
-      touched.clear();
-      pending.clear();
-      notify();
-    },
-  };
-}
-
-const FALLBACK_ROW_STATE_STORE = createFilterRowStateStore();
-
-const FilterRowStateContext = React.createContext<FilterRowStateStore>(FALLBACK_ROW_STATE_STORE);
-
-export const FilterRowStateProvider = FilterRowStateContext.Provider;
-
-/** The store itself, for handlers that write without subscribing. */
-export function useFilterRowStateStore(): FilterRowStateStore {
-  return React.useContext(FilterRowStateContext);
-}
-
-/** Whether THIS rule is still waiting for its attribute. */
-export function useFilterRowPending(id: string): boolean {
-  const store = React.useContext(FilterRowStateContext);
-  return React.useSyncExternalStore(
-    store.subscribe,
-    () => store.isPending(id),
-    () => false,
-  );
-}
-
-/** Whether THIS rule may show an error yet. */
-export function useFilterTouched(id: string): boolean {
-  const store = React.useContext(FilterRowStateContext);
-  return React.useSyncExternalStore(
-    store.subscribe,
-    () => store.has(id),
-    () => false,
-  );
-}
-
 /** The whole focus snapshot, so the caller re-renders on EVERY move anywhere
  *  in the row. A chip wants `useFilterChipFocused` or `useFilterSegmentFocus`
  *  below instead. */
@@ -518,10 +329,7 @@ export function useFilterChipFocused(id: string): boolean {
   );
 }
 
-/** Which segment of THIS rule owns the tab stop, or null when another rule
- *  does. A chip needs one boolean, but an advanced row is a grid ROW whose tab
- *  stop is a (row, column) pair, and the column has to come from this store
- *  too or the chromes disagree about where focus is after an edit. */
+/** Which segment of this rule owns the tab stop, or null for another rule. */
 export function useFilterSegmentFocus(id: string): FilterFocus["segment"] {
   const store = React.useContext(FilterFocusContext);
   return React.useSyncExternalStore(

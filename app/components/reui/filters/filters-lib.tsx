@@ -35,8 +35,8 @@ export const FILTER_MENU_CLASS =
 export const FILTER_MENU_LABEL_CLASS = "min-w-0 truncate";
 
 /**
- * The FIELD PICKER's panel, shared by the Add filter popover and the advanced
- * row's attribute cell so one schema is never drawn at two widths. `w-auto`
+ * The FIELD PICKER's panel, used by the Add filter popover and custom field
+ * pickers so one schema is never drawn at two widths. `w-auto`
  * grows to the longest row, so the 224px floor (down from 256px) only decides
  * the reported case: a flat schema of short names in a mostly empty panel.
  * Measured: 224px still clears the search input, the breadcrumb and a leaf

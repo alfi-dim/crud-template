@@ -1,19 +1,16 @@
 "use client";
 
 import * as React from "react";
-import { FiltersAdvanced } from "~/components/reui/filters/filters-advanced";
 import { FiltersBuilder } from "~/components/reui/filters/filters-builder";
 import { FilterChip } from "~/components/reui/filters/filters-chip";
 import {
   createFilterFocusStore,
   createFilterResolutionStore,
-  createFilterRowStateStore,
   FilterActionsContext,
   filterControlSizes,
   FilterFocusContext,
   filterReadOnlyProps,
   FilterRenderContext,
-  FilterRowStateProvider,
   FilterStateContext,
   isFilterLocked,
   useFilterActions,
@@ -36,7 +33,6 @@ import {
   buildFilterIndex,
   createFilterIdFactory,
   findFilterSchemaIssues,
-  formatFilterPath,
   getFilterField,
   warnFilterOnce,
   type FilterPathCollapse,
@@ -53,9 +49,7 @@ import {
 } from "~/components/reui/filters/filters-operators";
 import {
   clearFilterQuery,
-  copyFilterNodeTo,
   countFilterRules,
-  createFilterGroup,
   createFilterQuery,
   createFilterRule,
   duplicateFilterNode,
@@ -63,23 +57,13 @@ import {
   findFilterRule,
   flattenFilterRules,
   insertFilterNode,
-  isFilterRule,
-  moveFilterNode,
-  moveFilterNodeTo,
   removeFilterNode,
-  setFilterCombinator,
-  toggleFilterCombinator,
-  unwrapFilterGroup,
   updateFilterRule,
-  wrapFilterNodeInGroup,
 } from "~/components/reui/filters/filters-query";
 import type {
   FilterChangeDetails,
-  FilterCombinator,
   FilterDraft,
-  FilterDraftStep,
   FilterEditor,
-  FilterEmptyStateContext,
   FilterField,
   FilterLabels,
   FilterQuery,
@@ -161,27 +145,6 @@ export interface FiltersProps<V = unknown, O = unknown> {
   editors?: FilterEditorRegistry;
 
   /**
-   * Which chrome draws the query. `"basic"` is the flat chip row, joined by an
-   * implicit AND and drawing no combinator, because a chip row has nowhere to
-   * put a parenthesis, and it draws a nested rule at any depth as a flat chip.
-   */
-  variant?: "basic" | "advanced";
-  /** Where the advanced builder lives. `"inline"` renders the panel in place. */
-  advancedMode?: "popover" | "inline";
-  /**
-   * Where the panel sits against its trigger. Stating it settles a twin split:
-   * on overflow Base UI flips edges, Radix only shifts along the axis.
-   */
-  advancedAlign?: "start" | "center" | "end";
-  /**
-   * Whether the advanced builder's rows can be REORDERED. Off by default: a
-   * move changes nothing about what the query MEANS, and costs a grip on every
-   * row plus a gesture a touch screen starts by accident. On, drag and
-   * Alt+Arrow move any row but the lone root.
-   */
-  reorderable?: boolean;
-
-  /**
    * The density of the whole bar, chips included. TWO RUNGS and no `lg`,
    * resolved through `filterControlSizes` to whatever the ACTIVE STYLE calls
    * that rung (nova 7/8, sera 9/10, mira 6/7, maia and luma 8/9, lyra and rhea
@@ -195,9 +158,9 @@ export interface FiltersProps<V = unknown, O = unknown> {
   /**
    * ONE VETO POINT for every change the BAR makes to the query, and only those.
    * Return `false` to refuse; anything else commits, and `details.reason` names
-   * the action. One hook and not fourteen because every write goes through
-   * `emit`: the Delete key, Alt+Arrow and a drag alike. It can only refuse, and
-   * it sits BEHIND the lock, so a locked bar never asks it. Returning a
+   * the action. One hook rather than one per control because every write goes
+   * through `emit`. It can only refuse, and it sits BEHIND the lock, so a locked
+   * bar never asks it. Returning a
    * REPLACEMENT tree was rejected: the announcement is already computed from
    * the proposed tree, so the bar would say one thing and commit another.
    */
@@ -205,12 +168,6 @@ export interface FiltersProps<V = unknown, O = unknown> {
     query: FilterQuery<V>,
     details: FilterChangeDetails<V, O>,
   ) => boolean | void;
-
-  /**
-   * Offers "Convert to advanced filter" in every chip's kebab; its presence IS
-   * the switch, since `variant` belongs to the consumer. Not drawn in advanced.
-   */
-  onConvertToAdvanced?: () => void;
 
   /**
    * Classes for the dropdown MENUS and the field PICKER panel, one prop each
@@ -238,12 +195,6 @@ export interface FiltersProps<V = unknown, O = unknown> {
 
   renderValue?: (context: FilterValueDisplayContext<V, O>) => React.ReactNode;
   renderChip?: (rule: FilterRule<V>) => React.ReactNode;
-  /**
-   * Replaces the advanced builder's empty state, which exists at all because a
-   * builder with no rows is a footer floating in blank space. `null` for none.
-   */
-  renderEmpty?: (context: FilterEmptyStateContext) => React.ReactNode;
-
   className?: string;
   children?: React.ReactNode;
 }
@@ -256,15 +207,10 @@ export function Filters<V = unknown, O = unknown>({
   labels: labelsProp,
   operatorLabels: operatorLabelsProp,
   editors: editorsProp,
-  variant = "basic",
-  advancedMode = "popover",
-  advancedAlign = "start",
-  reorderable = false,
   size = "default",
   disabled = false,
   readOnly = false,
   onBeforeQueryChange,
-  onConvertToAdvanced,
   menuClassName,
   fieldPickerClassName,
   pathCollapse = "none",
@@ -273,7 +219,6 @@ export function Filters<V = unknown, O = unknown>({
   showClear = false,
   renderValue,
   renderChip,
-  renderEmpty,
   className,
   children,
 }: Readonly<FiltersProps<V, O>>) {
@@ -289,7 +234,7 @@ export function Filters<V = unknown, O = unknown>({
   );
   // Text AND a counter: `aria-live` fires on a DOM mutation and React writes
   // nothing when the string is already there, so a repeat was silent. Measured
-  // with a MutationObserver: "Group added" three times, one mutation.
+  // with a MutationObserver: the same count three times, one mutation.
   const [announced, setAnnounced] = React.useState({ seq: 0, text: "" });
   const announcement = announced.text;
   const setAnnouncement = React.useCallback((text: string) => {
@@ -301,7 +246,6 @@ export function Filters<V = unknown, O = unknown>({
   const nextId = React.useMemo(() => createFilterIdFactory(`${idSeed}f`), [idSeed]);
 
   const focusStore = React.useMemo(() => createFilterFocusStore(), []);
-  const rowStateStore = React.useMemo(() => createFilterRowStateStore(), []);
   // One per root: the value-to-label store every `useFilterOptions` shares.
   const resolutionStore = React.useMemo(() => createFilterResolutionStore(), []);
 
@@ -340,7 +284,6 @@ export function Filters<V = unknown, O = unknown>({
     labels,
     operatorCatalog,
     resolveOperators,
-    draft,
     nextId,
     setQuery,
     queryRef,
@@ -354,7 +297,6 @@ export function Filters<V = unknown, O = unknown>({
       labels,
       operatorCatalog,
       resolveOperators,
-      draft,
       nextId,
       setQuery,
       queryRef,
@@ -370,7 +312,7 @@ export function Filters<V = unknown, O = unknown>({
   // one. The lock flags are the ONE exception, for the reason on `locked`.
 
   /**
-   * THE MUTATION BOUNDARY, asked here and not at the nine buttons, because the
+   * THE MUTATION BOUNDARY, asked here and not at each control, because the
    * routes into a query are not only buttons. It needs BOTH the closure and
    * the ref: `latest` is written in a passive effect and effects run
    * child-first, so a consumer effect in the commit that turns `readOnly` on
@@ -411,7 +353,7 @@ export function Filters<V = unknown, O = unknown>({
    * fires only when the store is EMPTY, so a deleted id left twenty cells at
    * `tabindex="-1"` with focus on the BODY. Keyed on the committed `query`, so
    * a consumer's Reset or saved-view load is repaired too: add a condition,
-   * press Reset, and 25 cells stayed untabbable in both twins.
+   * press Reset, and every chip stayed untabbable.
    */
   React.useEffect(() => {
     const { id } = focusStore.getSnapshot();
@@ -420,33 +362,11 @@ export function Filters<V = unknown, O = unknown>({
   }, [query, focusStore]);
 
   const addRule = React.useCallback(
-    (rule: FilterRule<V>, parentId?: string) => {
+    (rule: FilterRule<V>) => {
       if (locked()) return;
-      const next = insertFilterNode(latest.current.queryRef.current, rule, parentId);
+      const next = insertFilterNode(latest.current.queryRef.current, rule);
       if (!emit(next, "add", rule)) return;
       setAnnouncement(latest.current.labels.countAnnouncement(countFilterRules(next)));
-    },
-    [emit, locked, setAnnouncement],
-  );
-
-  const addGroup = React.useCallback(
-    (parentId?: string, combinator: FilterCombinator = "or") => {
-      // Before `nextId`, so a LOCKED bar cannot drift the SSR-seeded sequence.
-      if (locked()) return "";
-      const id = latest.current.nextId();
-      // `or` by default: `a AND (b AND c)` is just `a AND b AND c`.
-      const next = insertFilterNode(
-        latest.current.queryRef.current,
-        createFilterGroup<V>({ id, combinator }),
-        parentId,
-      );
-      // `""` on a veto: every caller moves focus onto the id it gets back, and
-      // focusing a group that was never created strands the tab stop. The id
-      // is already burnt, deliberately: a veto is a client-time decision the
-      // server never took part in.
-      if (!emit(next, "add", null)) return "";
-      setAnnouncement(latest.current.labels.groupAnnouncement(true));
-      return id;
     },
     [emit, locked, setAnnouncement],
   );
@@ -457,16 +377,9 @@ export function Filters<V = unknown, O = unknown>({
       const current = latest.current.queryRef.current;
       const next = updateFilterRule(current, id, updates);
       if (next === current) return;
-      // THE VALUE, not the field or the operator: picking an attribute leaves
-      // the value empty, so arming there reddens the flow the primitive itself
-      // walks a user through. A field re-pick sends `value: undefined` in the
-      // SAME patch, so `path` and not the presence of `value` tells the two
-      // apart. Clearing a typed value still arms it: no `path` in that patch.
-      if ("path" in updates) rowStateStore.unmark(id);
-      else if ("value" in updates) rowStateStore.mark(id);
       emit(next, "update", findFilterRule(next, id));
     },
-    [emit, locked, rowStateStore],
+    [emit, locked],
   );
 
   const removeNode = React.useCallback(
@@ -477,13 +390,7 @@ export function Filters<V = unknown, O = unknown>({
       const next = removeFilterNode(current, id);
       if (next === current) return;
       if (!emit(next, "remove", removed)) return;
-      // A rule removal reports the COUNT; a group has no rule to report and
-      // takes an unknown number of conditions with it, so it says so instead.
-      setAnnouncement(
-        removed
-          ? latest.current.labels.countAnnouncement(countFilterRules(next))
-          : latest.current.labels.groupAnnouncement(false),
-      );
+      setAnnouncement(latest.current.labels.countAnnouncement(countFilterRules(next)));
     },
     [emit, locked, setAnnouncement],
   );
@@ -495,7 +402,6 @@ export function Filters<V = unknown, O = unknown>({
       const next = duplicateFilterNode(current, id, latest.current.nextId);
       if (next === current) return;
       if (!emit(next, "duplicate", findFilterRule(current, id))) return;
-      // The count, not "duplicated": a GROUP adds an unknown number of rows.
       setAnnouncement(latest.current.labels.countAnnouncement(countFilterRules(next)));
     },
     [emit, locked, setAnnouncement],
@@ -522,151 +428,6 @@ export function Filters<V = unknown, O = unknown>({
       emit(next, "negate", findFilterRule(next, id));
     },
     [emit, locked],
-  );
-
-  // Says where a node LANDED, the one mutator a screen reader hears nothing
-  // else about: focus stays on the handle and the name does not change. Reads
-  // the tree AFTER the move: the position and sibling count announced are the
-  // ones the user has just arrived at.
-  const announceReorder = React.useCallback(
-    (next: FilterQuery<V>, id: string, fromParentId: string | null) => {
-      const found = findFilterNode(next, id);
-      if (!found?.parent) return;
-      const label = isFilterRule(found.node)
-        ? formatFilterPath(
-            latest.current.index,
-            found.node.path,
-            latest.current.labels.pathSeparator,
-          )
-        : found.node.combinator === "and"
-          ? latest.current.labels.groupAll
-          : latest.current.labels.groupAny;
-      const position = found.index + 1;
-      const total = found.parent.rules.length;
-
-      // A move that changed the node's CONTAINER is a different event, named by
-      // the group's own headline, or the bar's label at the top level.
-      if (fromParentId && fromParentId !== found.parent.id) {
-        const destination =
-          found.parent.id === next.id
-            ? latest.current.labels.filtersLabel
-            : found.parent.combinator === "and"
-              ? latest.current.labels.groupAll
-              : latest.current.labels.groupAny;
-        setAnnouncement(
-          latest.current.labels.moveAnnouncement(label, destination, position, total),
-        );
-        return;
-      }
-
-      setAnnouncement(latest.current.labels.reorderAnnouncement(label, position, total));
-    },
-    [setAnnouncement],
-  );
-
-  const moveNode = React.useCallback(
-    (id: string, delta: number) => {
-      if (locked()) return;
-      const current = latest.current.queryRef.current;
-      const next = moveFilterNode(current, id, delta);
-      if (next === current) return;
-      if (!emit(next, "reorder", findFilterRule(next, id))) return;
-      // Within the owning group by construction, so there is no destination.
-      announceReorder(next, id, null);
-    },
-    [emit, announceReorder, locked],
-  );
-
-  // Also the drag layer's drop commit, so a drag and Alt+Arrow say the same.
-  const moveNodeTo = React.useCallback(
-    (id: string, parentId: string, index: number) => {
-      if (locked()) return;
-      const current = latest.current.queryRef.current;
-      // BEFORE the move: the only place the old parent still exists.
-      const fromParentId = findFilterNode(current, id)?.parent?.id ?? null;
-      const next = moveFilterNodeTo(current, id, parentId, index);
-      if (next === current) return;
-      if (!emit(next, "reorder", findFilterRule(next, id))) return;
-      announceReorder(next, id, fromParentId);
-    },
-    [emit, announceReorder, locked],
-  );
-
-  const copyNodeTo = React.useCallback(
-    (id: string, parentId: string, index: number) => {
-      if (locked()) return;
-      const current = latest.current.queryRef.current;
-      const next = copyFilterNodeTo(current, id, parentId, index, latest.current.nextId);
-      if (next === current) return;
-      if (!emit(next, "duplicate", findFilterRule(current, id))) return;
-      // The count again: an Alt-drag of a GROUP adds an unknown number of rows.
-      setAnnouncement(latest.current.labels.countAnnouncement(countFilterRules(next)));
-    },
-    [emit, locked, setAnnouncement],
-  );
-
-  const wrapNodeInGroup = React.useCallback(
-    (id: string, combinator: FilterCombinator = "or") => {
-      if (locked()) return;
-      const current = latest.current.queryRef.current;
-      const next = wrapFilterNodeInGroup(current, id, latest.current.nextId(), combinator);
-      if (next === current) return;
-      if (!emit(next, "add", findFilterRule(next, id))) return;
-      setAnnouncement(latest.current.labels.groupAnnouncement(true));
-    },
-    [emit, locked, setAnnouncement],
-  );
-
-  const unwrapGroup = React.useCallback(
-    (groupId: string) => {
-      if (locked()) return;
-      const current = latest.current.queryRef.current;
-      const next = unwrapFilterGroup(current, groupId);
-      if (next === current) return;
-      // The conditions survive in place, so the count has not changed.
-      if (!emit(next, "remove", null)) return;
-      setAnnouncement(latest.current.labels.groupAnnouncement(false));
-    },
-    [emit, locked, setAnnouncement],
-  );
-
-  // What a combinator change SOUNDS like: the pill's name changes with it, but
-  // a name change on the FOCUSED element is not re-announced by NVDA or JAWS.
-  // The group's own headline, not the bare word: it says what the query MEANS
-  // now, which is the thing that changed.
-  const announceCombinator = React.useCallback(
-    (combinator: FilterCombinator) => {
-      setAnnouncement(
-        combinator === "and" ? latest.current.labels.groupAll : latest.current.labels.groupAny,
-      );
-    },
-    [setAnnouncement],
-  );
-
-  const setCombinatorAction = React.useCallback(
-    (groupId: string, combinator: FilterCombinator) => {
-      if (locked()) return;
-      const current = latest.current.queryRef.current;
-      const next = setFilterCombinator(current, groupId, combinator);
-      if (next === current) return;
-      if (!emit(next, "combinator", null)) return;
-      announceCombinator(combinator);
-    },
-    [emit, locked, announceCombinator],
-  );
-
-  const toggleCombinatorAction = React.useCallback(
-    (groupId: string) => {
-      if (locked()) return;
-      const current = latest.current.queryRef.current;
-      const next = toggleFilterCombinator(current, groupId);
-      if (next === current) return;
-      if (!emit(next, "combinator", null)) return;
-      // Read off the COMMITTED tree, so the sentence cannot disagree with it.
-      const group = findFilterNode(next, groupId)?.node;
-      if (group && !isFilterRule(group)) announceCombinator(group.combinator);
-    },
-    [emit, locked, announceCombinator],
   );
 
   const clearQueryAction = React.useCallback(() => {
@@ -703,27 +464,9 @@ export function Filters<V = unknown, O = unknown>({
     dispatchDraftRaw({ type: "openCreate" });
   }, [locked]);
 
-  const openAmend = React.useCallback(
-    (id: string, step: FilterDraftStep) => {
-      if (locked()) return;
-      const rule = findFilterRule(latest.current.queryRef.current, id);
-      if (!rule) return;
-      dispatchDraftRaw({
-        type: "openAmend",
-        ruleId: id,
-        step,
-        path: rule.path,
-        operator: rule.operator,
-        value: rule.value,
-      });
-    },
-    [locked],
-  );
-
   const closeDraft = React.useCallback(() => dispatchDraftRaw({ type: "close" }), []);
 
   const getQuery = React.useCallback(() => latest.current.queryRef.current, []);
-  const getDraft = React.useCallback(() => latest.current.draft, []);
 
   /* ------------------------- draft -> query commit ------------------------ */
 
@@ -793,10 +536,8 @@ export function Filters<V = unknown, O = unknown>({
       size,
       disabled,
       readOnly,
-      variant,
       menuClassName,
       fieldPickerClassName,
-      convertToAdvanced: onConvertToAdvanced,
       pathCollapse,
       maxPathSegments,
       resolveOperators,
@@ -805,26 +546,16 @@ export function Filters<V = unknown, O = unknown>({
         resolveFilterEditor(field, operator, editors) as FilterEditor<V, O> | undefined,
       resolution: resolutionStore,
       addRule,
-      addGroup,
       updateRule,
       removeNode,
       duplicateNode,
       negateRule,
-      moveNode,
-      moveNodeTo,
-      copyNodeTo,
-      wrapNodeInGroup,
-      unwrapGroup,
-      setCombinator: setCombinatorAction,
-      toggleCombinator: toggleCombinatorAction,
       clearQuery: clearQueryAction,
       openCreate,
-      openAmend,
       closeDraft,
       dispatchDraft,
       announce,
       getQuery,
-      getDraft,
       nextId,
     }),
     // Every input is memoized and every action `[]`-stable, so this
@@ -837,35 +568,23 @@ export function Filters<V = unknown, O = unknown>({
       size,
       disabled,
       readOnly,
-      variant,
       menuClassName,
       fieldPickerClassName,
-      onConvertToAdvanced,
       pathCollapse,
       maxPathSegments,
       resolveOperators,
       resolutionStore,
       addRule,
-      addGroup,
       updateRule,
       removeNode,
       duplicateNode,
       negateRule,
-      moveNode,
-      moveNodeTo,
-      copyNodeTo,
-      wrapNodeInGroup,
-      unwrapGroup,
-      setCombinatorAction,
-      toggleCombinatorAction,
       clearQueryAction,
       openCreate,
-      openAmend,
       closeDraft,
       dispatchDraft,
       announce,
       getQuery,
-      getDraft,
       nextId,
     ],
   );
@@ -882,30 +601,19 @@ export function Filters<V = unknown, O = unknown>({
   );
 
   const renderContext = React.useMemo(
-    () => ({ renderValue, renderChip, renderEmpty }),
-    [renderValue, renderChip, renderEmpty],
+    () => ({ renderValue, renderChip }),
+    [renderValue, renderChip],
   );
 
   return (
     <FilterActionsContext.Provider value={actions as unknown as FilterActionsContextValue}>
       <FilterStateContext.Provider value={state as never}>
         <FilterRenderContext.Provider value={renderContext as never}>
-          <FilterRowStateProvider value={rowStateStore}>
-            <FilterFocusContext.Provider value={focusStore}>
-              {children ??
-                (variant === "advanced" ? (
-                  <FiltersAdvanced<V, O>
-                    mode={advancedMode}
-                    align={advancedAlign}
-                    trigger={trigger}
-                    reorderable={reorderable}
-                    className={className}
-                  />
-                ) : (
-                  <FiltersRow trigger={trigger} showClear={showClear} className={className} />
-                ))}
-            </FilterFocusContext.Provider>
-          </FilterRowStateProvider>
+          <FilterFocusContext.Provider value={focusStore}>
+            {children ?? (
+              <FiltersRow trigger={trigger} showClear={showClear} className={className} />
+            )}
+          </FilterFocusContext.Provider>
         </FilterRenderContext.Provider>
       </FilterStateContext.Provider>
     </FilterActionsContext.Provider>
@@ -940,7 +648,7 @@ export function FiltersRow({ trigger, showClear, className }: Readonly<FiltersRo
   const locked = isFilterLocked(actions);
 
   // Flattened, not `query.rules.filter(isFilterRule)`: a query built in the
-  // advanced builder would otherwise hide nested conditions that still filter.
+  // another query source would otherwise hide nested persisted conditions.
   const rules = React.useMemo(() => flattenFilterRules(query), [query]);
 
   const chips = () =>
@@ -970,12 +678,6 @@ export function FiltersRow({ trigger, showClear, className }: Readonly<FiltersRo
     const ruleId = target.dataset.ruleId;
     if (!ruleId) return;
 
-    if (event.altKey && (event.key === forward || event.key === backward)) {
-      if (locked) return;
-      event.preventDefault();
-      actions.moveNode(ruleId, event.key === forward ? 1 : -1);
-      return;
-    }
     if (event.key === forward) return focusAt(current + 1);
     if (event.key === backward) return focusAt(current - 1);
     if (event.key === "Home") return focusAt(0);
@@ -1084,11 +786,6 @@ export function FiltersRow({ trigger, showClear, className }: Readonly<FiltersRo
 // one target of that hand-off beside Prisma, Drizzle, a REST query string and
 // Elasticsearch.
 export {
-  // The panel does not DRAW the built-in reasons, so this is the only way to
-  // surface "missing value", "empty group" and the rest.
-  collectFilterIssues,
-  copyFilterNodeTo,
-  createFilterGroup,
   createFilterQuery,
   createFilterRule,
   countFilterRules,
@@ -1096,16 +793,6 @@ export {
   flattenFilterRules,
   isFilterQueryEmpty,
   isFilterRuleComplete,
-  moveFilterNodeTo,
-  pruneFilterQuery,
-  unwrapFilterGroup,
-  wrapFilterNodeInGroup,
-} from "~/components/reui/filters/filters-query";
-
-// The two resolver signatures `collectFilterIssues` takes.
-export type {
-  FilterArityResolver,
-  FilterValidateResolver,
 } from "~/components/reui/filters/filters-query";
 
 export {
@@ -1131,11 +818,6 @@ export {
   FilterValuePopover,
   useFilterRuleDisplay,
 } from "~/components/reui/filters/filters-chip";
-export {
-  FiltersAdvanced,
-  FiltersAdvancedPanel,
-  FilterAdvancedRow,
-} from "~/components/reui/filters/filters-advanced";
 export { FiltersBuilder, FilterFieldPicker } from "~/components/reui/filters/filters-builder";
 export { DEFAULT_FILTER_LABELS } from "~/components/reui/filters/filters-i18n";
 export {

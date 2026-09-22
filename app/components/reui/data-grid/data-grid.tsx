@@ -3,20 +3,14 @@
 import { createContext, useContext, useEffect, useMemo, useRef } from "react";
 import type { ReactNode } from "react";
 import {
-  columnFacetingFeature,
-  columnFilteringFeature,
   columnOrderingFeature,
   columnPinningFeature,
   columnResizingFeature,
   columnSizingFeature,
   columnVisibilityFeature,
   createExpandedRowModel,
-  createFacetedRowModel,
-  createFacetedUniqueValues,
-  createFilteredRowModel,
   createPaginatedRowModel,
   createSortedRowModel,
-  globalFilteringFeature,
   metaHelper,
   rowExpandingFeature,
   rowPaginationFeature,
@@ -31,15 +25,7 @@ import {
   sortFn_textCaseSensitive,
   tableFeatures,
 } from "@tanstack/react-table";
-import type {
-  Column,
-  ColumnFiltersState,
-  ReactTable,
-  RowData,
-  SortingState,
-  Table,
-  TableFeatures,
-} from "@tanstack/react-table";
+import type { Column, ReactTable, RowData, Table, TableFeatures } from "@tanstack/react-table";
 
 import { cn } from "~/lib/utils";
 import { humanize } from "~/lib/humanize";
@@ -95,25 +81,14 @@ export const dataGridFeatures = tableFeatures({
   columnSizingFeature,
   // columnResizingFeature requires columnSizingFeature, declared above.
   columnResizingFeature,
-  columnFilteringFeature,
-  // Powers DataGridColumnFilter's column.getFacetedUniqueValues(). On v8 an
-  // unregistered facet silently returned an empty map; on v9 the method would
-  // not exist at all, so the faceted row models below are required, not
-  // optional.
-  columnFacetingFeature,
-  // globalFilteringFeature requires columnFilteringFeature, declared above.
-  globalFilteringFeature,
   rowSortingFeature,
   rowPaginationFeature,
   rowSelectionFeature,
   rowExpandingFeature,
   rowPinningFeature,
   sortedRowModel: createSortedRowModel(),
-  filteredRowModel: createFilteredRowModel(),
   paginatedRowModel: createPaginatedRowModel(),
   expandedRowModel: createExpandedRowModel(),
-  facetedRowModel: createFacetedRowModel(),
-  facetedUniqueValues: createFacetedUniqueValues(),
   // Every built-in v9 ships. A string `sortFn` resolves against this map
   // alone, and `sortFn: "auto"` infers a name ("alphanumeric", "text" or
   // "datetime") from the first row's value - so a partial map makes auto
@@ -155,23 +130,6 @@ export function getColumnHeaderLabel<TData extends RowData, TValue>(
   if (typeof defHeader === "string") return defHeader;
   return humanize(String(column.id));
 }
-
-export type DataGridApiFetchParams = {
-  pageIndex: number;
-  pageSize: number;
-  sorting?: SortingState;
-  filters?: ColumnFiltersState;
-  searchQuery?: string;
-};
-
-export type DataGridApiResponse<T> = {
-  data: T[];
-  empty: boolean;
-  pagination: {
-    total: number;
-    page: number;
-  };
-};
 
 /**
  * Everything `<DataGrid>` accepts except the two props the provider consumes
@@ -279,13 +237,6 @@ function createDataGridAutoSizeController<TData extends object>(
   };
 }
 
-export type DataGridRequestParams = {
-  pageIndex: number;
-  pageSize: number;
-  sorting?: SortingState;
-  columnFilters?: ColumnFiltersState;
-};
-
 export interface DataGridProps<TFeatures extends TableFeatures, TData extends object> {
   "aria-label"?: string;
   "aria-labelledby"?: string;
@@ -317,7 +268,6 @@ export interface DataGridProps<TFeatures extends TableFeatures, TData extends ob
     columnsPinnable?: boolean;
     columnsMovable?: boolean;
     columnsDraggable?: boolean;
-    rowsDraggable?: boolean;
     rowsPinnable?: boolean;
   };
   tableClassNames?: {
@@ -436,14 +386,12 @@ function DataGridProvider<TData extends object>({
       JSON.stringify(props.tableClassNames),
       tableState.sorting,
       tableState.pagination,
-      tableState.columnFilters,
       tableState.rowSelection,
       tableState.rowPinning,
       tableState.expanded,
       tableState.columnVisibility,
       tableState.columnOrder,
       tableState.columnPinning,
-      tableState.globalFilter,
     ],
   );
 
@@ -483,7 +431,6 @@ function DataGrid<TFeatures extends TableFeatures, TData extends object>({
       columnsPinnable: false,
       columnsMovable: false,
       columnsDraggable: false,
-      rowsDraggable: false,
       rowsPinnable: false,
     },
     tableClassNames: {
@@ -533,15 +480,7 @@ function DataGrid<TFeatures extends TableFeatures, TData extends object>({
   );
 }
 
-function DataGridContainer({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-  /** Accepted for backwards compatibility; currently has no effect. */
-  border?: boolean;
-}) {
+function DataGridContainer({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <div data-slot="data-grid" className={cn("w-full overflow-hidden", className)}>
       {children}

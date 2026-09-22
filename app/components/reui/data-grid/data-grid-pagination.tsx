@@ -17,11 +17,7 @@ import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 
 interface DataGridPaginationProps {
   sizes?: number[];
-  sizesInfo?: string;
-  sizesLabel?: string;
-  sizesDescription?: string;
   sizesSkeleton?: ReactNode;
-  more?: boolean;
   moreLimit?: number;
   info?: string;
   infoSkeleton?: ReactNode;

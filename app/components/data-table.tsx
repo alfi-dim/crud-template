@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useDeferredValue, useState } from "react";
 import { Settings2 } from "lucide-react";
 import {
   createColumnHelper,
@@ -345,6 +345,7 @@ export function DataTable<TData extends RowData>({
   const [sorting, setSorting] = useState<SortingState>([]);
 
   const [search, setSearch] = useState("");
+  const deferredSearch = useDeferredValue(search);
 
   const [filterQuery, setFilterQuery] = useState<FilterQuery>(() => createFilterQuery());
   const normalizeCalendarDate = useMemo(
@@ -372,7 +373,7 @@ export function DataTable<TData extends RowData>({
   );
 
   const filteredData = useMemo(() => {
-    const normalizedSearch = search.trim().toLowerCase();
+    const normalizedSearch = deferredSearch.trim().toLowerCase();
 
     return data.filter((row) => {
       if (enableSearch && normalizedSearch) {
@@ -403,7 +404,7 @@ export function DataTable<TData extends RowData>({
     });
   }, [
     data,
-    search,
+    deferredSearch,
     searchKeys,
     activeConditions,
     enableSearch,
@@ -472,7 +473,7 @@ export function DataTable<TData extends RowData>({
       isLoading={isLoading}
       loadingMessage={loadingMessage}
       emptyMessage={
-        data.length === 0 || (!search.trim() && activeConditions.length === 0)
+        data.length === 0 || (!deferredSearch.trim() && activeConditions.length === 0)
           ? emptyMessage
           : noResultsMessage
       }

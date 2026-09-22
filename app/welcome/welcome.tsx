@@ -4,18 +4,20 @@ import { ModeToggle } from "~/components/ui/mode-toggle";
 
 import { DataGridColumnHeader } from "~/components/reui/data-grid/data-grid-column-header";
 
-import { createDataTableColumnHelper, DataTable } from "~/components/data-table";
+import { createDataTableColumnHelper, DataTable, TableDate } from "~/components/data-table";
 import { humanize } from "~/lib/humanize";
 import type { FilterField } from "~/components/reui/filters/filters-types";
 import { ExternalLink } from "lucide-react";
 
-export interface DemoTableData {
+interface DemoTableData {
   id: string;
   library: string;
   url: string;
+  date: string;
   type: "ui-ux" | "core" | "styling" | "others";
 }
 
+const DATE_TIME_ZONE = "UTC";
 const columnHelper = createDataTableColumnHelper<DemoTableData>();
 
 const columns = columnHelper.columns([
@@ -24,10 +26,6 @@ const columns = columnHelper.columns([
     cell: (info) => <div>{info.getValue()}</div>,
     enableSorting: true,
     enableHiding: true,
-    enableResizing: true,
-    meta: {
-      autoSize: true,
-    },
   }),
 
   columnHelper.accessor("url", {
@@ -44,7 +42,6 @@ const columns = columnHelper.columns([
     ),
     enableSorting: true,
     enableHiding: true,
-    enableResizing: true,
     size: 300,
   }),
 
@@ -53,7 +50,13 @@ const columns = columnHelper.columns([
     cell: (info) => <div>{humanize(info.getValue())}</div>,
     enableSorting: true,
     enableHiding: true,
-    enableResizing: true,
+    size: 180,
+  }),
+  columnHelper.accessor("date", {
+    header: ({ column }) => <DataGridColumnHeader title="Date" column={column} />,
+    cell: (info) => <TableDate value={info.getValue()} timeZone={DATE_TIME_ZONE} />,
+    enableSorting: true,
+    enableHiding: true,
     size: 180,
   }),
 ]);
@@ -87,6 +90,12 @@ const filterFields = [
       },
     ],
   },
+  {
+    id: "date",
+    label: "Date",
+    type: "date",
+    defaultOperator: "date_is",
+  },
 ] satisfies FilterField[];
 
 const data: DemoTableData[] = [
@@ -94,24 +103,28 @@ const data: DemoTableData[] = [
     id: "react-router",
     library: "React Router",
     url: "https://reactrouter.com/",
+    date: "2026-01-12",
     type: "core",
   },
   {
     id: "vite",
     library: "Vite",
     url: "https://vite.dev/",
+    date: "2020-04-12",
     type: "core",
   },
   {
     id: "tanstack-form",
     library: "@tanstack/react-form",
     url: "https://tanstack.com/form/latest",
+    date: "2025-07-04",
     type: "core",
   },
   {
     id: "tanstack-table",
     library: "@tanstack/react-table",
     url: "https://tanstack.com/table/latest",
+    date: "2022-02-14",
     type: "core",
   },
   {
@@ -119,17 +132,20 @@ const data: DemoTableData[] = [
     library: "Tailwind",
     url: "https://tailwindcss.com/",
     type: "styling",
+    date: "2023-09-24",
   },
   {
     id: "lucide",
     library: "Lucide",
     url: "https://lucide.dev/",
+    date: "2021-03-28",
     type: "styling",
   },
   {
     id: "shadcn",
     library: "Shadcn",
     url: "https://ui.shadcn.com/",
+    date: "2026-07-04",
     type: "ui-ux",
   },
   {
@@ -137,24 +153,28 @@ const data: DemoTableData[] = [
     library: "ReUI's Data Grid",
     url: "https://reui.io/docs/components/base/data-grid",
     type: "ui-ux",
+    date: "2022-11-21",
   },
   {
     id: "zod",
     library: "Zod",
     url: "https://zod.dev/",
     type: "others",
+    date: "2025-07-04",
   },
   {
     id: "oxlint",
     library: "Oxlint",
     url: "https://oxc.rs/docs/guide/usage/linter.html",
     type: "others",
+    date: "2025-08-19",
   },
   {
     id: "oxfmt",
     library: "Oxfmt",
     url: "https://oxc.rs/docs/guide/usage/formatter.html",
     type: "others",
+    date: "2025-09-02",
   },
 ];
 
@@ -211,8 +231,10 @@ export function Welcome() {
           <DataTable
             aria-label="Libraries"
             data={data}
+            dateTimeZone={DATE_TIME_ZONE}
             columns={columns}
             filterFields={filterFields}
+            getRowId={(row) => row.id}
             searchKeys={["library", "type"]}
             searchPlaceholder="Search libraries..."
           />

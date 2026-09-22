@@ -4,9 +4,11 @@ import {
   createCookieSessionStorage,
   type RouterContextProvider,
 } from "react-router";
+import { randomBytes } from "node:crypto";
 
 export type SessionData = {
   userId: string;
+  csrfToken?: string;
 };
 
 export type ToastFlash = {
@@ -67,7 +69,14 @@ export async function createRequestSession(request: Request) {
 }
 
 export function getRequestSession(context: Readonly<RouterContextProvider>) {
-  return context.get(requestSessionContext);
+  const state = context.get(requestSessionContext);
+  if (!state) {
+    throw new Error(
+      "getRequestSession called outside request context. " +
+        "Ensure the session middleware runs before this route.",
+    );
+  }
+  return state;
 }
 
 export function markSessionDirty(context: Readonly<RouterContextProvider>) {
@@ -78,6 +87,44 @@ export function markSessionDestroyed(context: Readonly<RouterContextProvider>) {
   const state = getRequestSession(context);
   state.destroy = true;
   state.dirty = false;
+}
+
+/** Generates a CSRF token and stores it in the session. Returns the token. */
+export function ensureCsrfToken(context: Readonly<RouterContextProvider>): string {
+  const { session } = getRequestSession(context);
+  let token = session.get("csrfToken") as string | undefined;
+  if (!token || typeof token !== "string") {
+    token = randomBytes(32).toString("hex");
+    session.set("csrfToken", token);
+    markSessionDirty(context);
+  }
+  return token;
+}
+
+/** Validates a CSRF token against the one stored in the session. */
+export function validateCsrfToken(
+  context: Readonly<RouterContextProvider>,
+  token: string | null | undefined,
+): boolean {
+  if (!token) return false;
+  const { session } = getRequestSession(context);
+  const expected = session.get("csrfToken") as string | undefined;
+  if (!expected) return false;
+  // Constant-time comparison to prevent timing attacks
+  if (token.length !== expected.length) return false;
+  let result = 0;
+  for (let i = 0; i < token.length; i++) {
+    result |= token.charCodeAt(i) ^ expected.charCodeAt(i);
+  }
+  return result === 0;
+}
+
+/** Validates the CSRF token from a request header. Throws 403 if invalid. */
+export function requireCsrfToken(request: Request, context: Readonly<RouterContextProvider>): void {
+  const token = request.headers.get("X-CSRF-Token");
+  if (!validateCsrfToken(context, token)) {
+    throw new Response("Invalid CSRF token", { status: 403 });
+  }
 }
 
 export { getSession, commitSession, destroySession };

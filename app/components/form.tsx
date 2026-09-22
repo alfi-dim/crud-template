@@ -1,5 +1,4 @@
-import type { AnyFieldApi } from "@tanstack/react-form";
-import { useSelector } from "@tanstack/react-form";
+import { type AnyFieldApi, revalidateLogic, useSelector } from "@tanstack/react-form";
 import { EyeIcon, EyeOffIcon } from "lucide-react";
 import * as React from "react";
 import { useFetcher, useFormAction, useNavigation, useSubmit } from "react-router";
@@ -26,7 +25,7 @@ import {
 } from "~/components/ui/select";
 import { Spinner } from "~/components/ui/spinner";
 import { Textarea } from "~/components/ui/textarea";
-import { revalidateLogic, useAppForm } from "~/components/ui/tanstack-form";
+import { useAppForm } from "~/components/ui/tanstack-form";
 import { cn } from "~/lib/utils";
 
 export type FormActionResult = {

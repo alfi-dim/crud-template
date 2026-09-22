@@ -14,7 +14,7 @@ export function stringifyValue(value: unknown): string {
   }
 
   if (value instanceof Date) {
-    return value.toISOString();
+    return Number.isNaN(value.getTime()) ? "" : value.toISOString();
   }
 
   return "";

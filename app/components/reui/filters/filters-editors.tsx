@@ -477,7 +477,8 @@ export function FilterNumberEditor<V, O>({
           aria-label={field.label}
           onChange={(event) => {
             const raw = event.target.value;
-            onValueChange((raw === "" ? undefined : Number(raw)) as V);
+            const num = Number(raw);
+            onValueChange((raw === "" || !Number.isFinite(num) ? undefined : num) as V);
           }}
           onKeyDown={onKeyDown}
         />
@@ -505,7 +506,8 @@ export function FilterRangeEditor<V, O>({
 
   const update = (index: 0 | 1, raw: string) => {
     const next = [tuple[0], tuple[1]];
-    next[index] = raw === "" ? undefined : Number(raw);
+    const num = Number(raw);
+    next[index] = raw === "" || !Number.isFinite(num) ? undefined : num;
     onValueChange(next as V);
   };
 

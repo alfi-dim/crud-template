@@ -85,7 +85,7 @@ Authentication only establishes the example `userId`. The consuming project must
 
 ## Configurable Form
 
-`app/components/form.tsx` provides `ConfigurableForm`, a schema-driven form using TanStack Form and Zod. It supports navigation and fetcher submissions, client validation, server field errors, pending state, reset behavior, and custom fields.
+`app/components/form.tsx` provides the template's supported form API, `ConfigurableForm`, using TanStack Form and Zod. It supports navigation and fetcher submissions, client validation, server field errors, pending state, reset behavior, and custom fields.
 
 Define one Zod schema and a typed field configuration:
 
@@ -139,18 +139,34 @@ The component submits JSON with `POST`. Routes can use `readJsonAction()` from `
 
 Editing a field clears its server error and the form-level error, while preserving errors for untouched fields. A new server result restores its errors. Success handling depends on the result, not callback identity; unrelated navigation does not mark the form busy. Required select and checkbox controls expose `aria-required`.
 
+For edit forms, provide the loaded record through `defaultValues`. Fetcher mode is useful for inline forms and dialogs that should submit without navigation:
+
+```tsx
+<ConfigurableForm
+  title="Edit user"
+  target={`/users/${user.id}`}
+  schema={userSchema}
+  fields={userFields}
+  defaultValues={user}
+  submissionMode="fetcher"
+  resetOnSuccess
+  onSuccess={() => closeDialog()}
+/>
+```
+
 ## Data Table
 
 `app/components/data-table.tsx` provides the reusable `DataTable` wrapper. Data fetching remains outside the component and complete rows are passed through `data`.
 
 ```tsx
 import { DataGridColumnHeader } from "~/components/reui/data-grid/data-grid-column-header";
-import { createDataTableColumnHelper, DataTable } from "~/components/data-table";
+import { createDataTableColumnHelper, DataTable, TableDate } from "~/components/data-table";
 
 type UserRow = {
   id: string;
   name: string;
   status: "active" | "inactive";
+  createdAt: string;
 };
 
 const columnHelper = createDataTableColumnHelper<UserRow>();
@@ -171,9 +187,84 @@ export function UsersTable({ users }: { users: UserRow[] }) {
 }
 ```
 
-The table performs pagination, sorting, searching, and filtering in the browser over the complete supplied dataset. DataTable uses basic filters: flat rules combined with implicit `AND`. Incomplete rules are ignored according to each field’s resolved operator arity (including custom operators); unsupported nonempty operators match no rows even when they have no value. Empty selections are checked by array length, and numeric comparisons exclude missing, blank, and non-finite values. The advanced Filters component remains available independently, but DataTable does not support nested groups or OR queries.
+The table performs pagination, sorting, searching, and filtering in the browser over the complete supplied dataset. Filters are a basic flat bar whose rules are combined with implicit `AND`; nested groups and `OR` editing are not supported. Incomplete rules are ignored according to each field’s resolved operator arity (including custom operators); unsupported nonempty operators match no rows even when they have no value. Empty selections are checked by array length, and numeric comparisons exclude missing, blank, and non-finite values.
 
 `initialPageSize` must be a positive integer; the current size is included in the page-size selector. Use `aria-label` or `aria-labelledby` to identify each table. Row actions without an individual or shared handler are omitted. Column resizing defaults to off; `enableColumnResizing={true}` opts into the grid primitive’s pointer-based resize handles.
+
+Use row actions for resource-specific commands without coupling them to the table implementation:
+
+```tsx
+<DataTable
+  aria-label="Users"
+  data={users}
+  columns={columns}
+  rowActions={{
+    defaults: false,
+    additional: [{ id: "edit", label: "Edit" }],
+  }}
+  onRowAction={({ actionId, original }) => {
+    if (actionId === "edit") openEditor(original.id);
+  }}
+/>
+```
+
+`TableDate` provides a small date-cell formatter with locale, timezone, and fallback support:
+
+```tsx
+columnHelper.accessor("createdAt", {
+  header: "Created",
+  cell: (info) => <TableDate value={info.getValue()} variant="datetime" />,
+});
+```
+
+Date filters use native calendar inputs and timezone-free `YYYY-MM-DD` values:
+
+```tsx
+import type { FilterField } from "~/components/reui/filters/filters-types";
+
+const dateFilterFields = [
+  { id: "createdAt", label: "Created", type: "date" },
+] satisfies FilterField[];
+
+<DataTable
+  aria-label="Users"
+  data={users}
+  columns={columns}
+  filterFields={dateFilterFields}
+  dateTimeZone="UTC"
+/>;
+```
+
+Calendar-date row values keep their literal day and are never shifted through a timezone. Timestamp row values may be `Date` instances, finite epoch-millisecond numbers, or ISO strings ending in `Z` or an explicit offset such as `+07:00`; timezone-less datetime strings are rejected. Timestamps are converted to a calendar date using `dateTimeZone`, which defaults to `UTC`. Pass the same timezone to `TableDate` when displaying timestamps.
+
+Date ranges are inclusive. Incomplete ranges are ignored, reversed ranges cannot be committed and never match externally supplied rules, and invalid or missing row dates match only `empty`/`not_empty`. Relative phrases such as `today` and `last week` are intentionally unsupported; projects that need them can provide a custom editor and predicate.
+
+For domain-specific flat filtering, pass `filterCondition`. It replaces the default evaluator, receives one normalized condition at a time, and DataTable combines every result with implicit `AND`:
+
+```tsx
+import type { FilterField } from "~/components/reui/filters/filters-types";
+
+const customFilterFields = [
+  {
+    id: "nameLength",
+    label: "Name length",
+    type: "number",
+    operators: [{ value: "gte", label: "at least", arity: "one" }],
+  },
+] satisfies FilterField[];
+
+<DataTable
+  aria-label="Users"
+  data={users}
+  columns={columns}
+  filterFields={customFilterFields}
+  filterCondition={(row, condition) =>
+    condition.field === "nameLength" &&
+    condition.operator === "gte" &&
+    row.name.length >= Number(condition.values[0])
+  }
+/>;
+```
 
 Server-controlled pagination, URL-backed state, total-count metadata, and backend filter compilation are intentionally not included. Add them in the consuming project if its dataset or API requires them.
 

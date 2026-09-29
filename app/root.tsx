@@ -7,7 +7,6 @@ import {
   commitSession,
   createRequestSession,
   destroySession,
-  ensureCsrfToken,
   getRequestSession,
   markSessionDirty,
   requestSessionContext,
@@ -36,8 +35,7 @@ export const loader = async ({ context }: Route.LoaderArgs) => {
   const { session } = getRequestSession(context);
   const toast = session.get("toast");
   if (toast) markSessionDirty(context);
-  const csrfToken = ensureCsrfToken(context);
-  return data({ toast, csrfToken });
+  return data({ toast });
 };
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -58,9 +56,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        {loaderData?.csrfToken ? (
-          <meta name="csrf-token" content={loaderData.csrfToken} />
-        ) : null}
         <Meta />
         <Links />
       </head>

@@ -1,7 +1,7 @@
 import { type AnyFieldApi, revalidateLogic, useSelector } from "@tanstack/react-form";
 import { EyeIcon, EyeOffIcon } from "lucide-react";
 import * as React from "react";
-import { useFetcher, useFormAction, useNavigation, useRouteLoaderData, useSubmit } from "react-router";
+import { useFetcher, useFormAction, useNavigation, useSubmit } from "react-router";
 import type * as z from "zod";
 
 import { Button } from "~/components/ui/button";
@@ -147,8 +147,6 @@ export function ConfigurableForm<TValues extends Record<string, unknown>>({
   const navigation = useNavigation();
   const fetcher = useFetcher<FormActionResult>();
   const resolvedAction = useFormAction(target);
-  const rootLoaderData = useRouteLoaderData("root") as { csrfToken?: string } | undefined;
-  const csrfToken = rootLoaderData?.csrfToken;
 
   const serverResult = submissionMode === "fetcher" ? fetcher.data : actionData;
   const [errorState, setErrorState] = React.useState<{
@@ -198,14 +196,10 @@ export function ConfigurableForm<TValues extends Record<string, unknown>>({
       hideServerErrors();
       const payload = value as unknown as RouterSubmitTarget;
 
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
-
       const options = {
         method: "post" as const,
         action: target,
         encType: "application/json" as const,
-        headers,
       };
 
       if (submissionMode === "fetcher") {

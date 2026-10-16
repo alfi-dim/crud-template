@@ -48,6 +48,7 @@ type BaseFieldConfig<TValues> = {
   description?: string;
   required?: boolean;
   disabled?: boolean;
+  loading?: boolean;
   className?: string;
 };
 
@@ -84,6 +85,8 @@ export type CustomFieldRenderContext = {
   id: string;
   serverError?: string;
   clearServerErrors: () => void;
+  setFieldLoading: (names: readonly string[], loading: boolean) => void;
+  setAllLoading: (loading: boolean) => void;
 };
 
 type CustomFieldConfig<TValues> = BaseFieldConfig<TValues> & {
@@ -183,6 +186,40 @@ export function ConfigurableForm<TValues extends Record<string, unknown>>({
     [serverResult],
   );
 
+  const [loadingFields, setLoadingFields] = React.useState<Readonly<Record<string, boolean>>>(() =>
+    Object.fromEntries(fields.map((config) => [config.name, config.loading ?? false])),
+  );
+
+  const setFieldLoading = React.useCallback((names: readonly string[], loading: boolean) => {
+    if (names.length === 0) return;
+    setLoadingFields((previous) => {
+      let changed = false;
+      const next: Record<string, boolean> = { ...previous };
+      for (const name of names) {
+        if (!Object.hasOwn(previous, name)) {
+          if (process.env.NODE_ENV !== "production") {
+            console.warn(`[ConfigurableForm] setFieldLoading: unknown field name "${name}"`);
+          }
+          continue;
+        }
+        if ((next[name] ?? false) !== loading) {
+          next[name] = loading;
+          changed = true;
+        }
+      }
+      return changed ? next : previous;
+    });
+  }, []);
+
+  const setAllLoading = React.useCallback((loading: boolean) => {
+    setLoadingFields((previous) => {
+      const keys = Object.keys(previous);
+      if (keys.length === 0) return previous;
+      if (keys.every((key) => (previous[key] ?? false) === loading)) return previous;
+      return Object.fromEntries(keys.map((key) => [key, loading]));
+    });
+  }, []);
+
   const form = useAppForm({
     defaultValues,
     validationLogic: revalidateLogic({
@@ -228,6 +265,7 @@ export function ConfigurableForm<TValues extends Record<string, unknown>>({
     submissionMode === "fetcher"
       ? fetcher.state !== "idle"
       : isOwnNavigation && navigation.state !== "idle";
+  const anyLoading = Object.values(loadingFields).some(Boolean);
 
   const handleSuccess = React.useEffectEvent((result: FormActionResult) => {
     if (resetOnSuccess) form.reset();
@@ -274,6 +312,9 @@ export function ConfigurableForm<TValues extends Record<string, unknown>>({
                         : undefined
                     }
                     clearServerErrors={() => clearServerError(config.name)}
+                    loading={loadingFields[config.name] ?? config.loading ?? false}
+                    setFieldLoading={setFieldLoading}
+                    setAllLoading={setAllLoading}
                   />
                 )}
               </form.AppField>
@@ -293,7 +334,7 @@ export function ConfigurableForm<TValues extends Record<string, unknown>>({
                 {resetLabel}
               </Button>
             ) : null}
-            <Button type="submit" disabled={isBusy || !canSubmit}>
+            <Button type="submit" disabled={isBusy || !canSubmit || anyLoading}>
               {isBusy ? <Spinner /> : null}
               {isBusy ? submittingLabel : submitLabel}
             </Button>
@@ -309,11 +350,17 @@ function ConfiguredField<TValues extends Record<string, unknown>>({
   field,
   serverError,
   clearServerErrors,
+  loading,
+  setFieldLoading,
+  setAllLoading,
 }: Readonly<{
   config: FormFieldConfig<TValues>;
   field: AnyFieldApi;
   serverError?: string;
   clearServerErrors: () => void;
+  loading: boolean;
+  setFieldLoading: (names: readonly string[], loading: boolean) => void;
+  setAllLoading: (loading: boolean) => void;
 }>) {
   const id = React.useId();
   const descriptionId = `${id}-description`;
@@ -326,6 +373,8 @@ function ConfiguredField<TValues extends Record<string, unknown>>({
   const describedBy = [config.description ? descriptionId : undefined, error ? errorId : undefined]
     .filter(Boolean)
     .join(" ");
+  const isLoading = loading;
+  const isDisabled = config.disabled || isLoading;
 
   const change = React.useCallback(
     (value: unknown) => {
@@ -343,6 +392,8 @@ function ConfiguredField<TValues extends Record<string, unknown>>({
           id,
           serverError,
           clearServerErrors,
+          setFieldLoading,
+          setAllLoading,
         })}
       </div>
     );
@@ -356,16 +407,21 @@ function ConfiguredField<TValues extends Record<string, unknown>>({
             id={id}
             checked={Boolean(field.state.value)}
             aria-required={config.required}
-            disabled={config.disabled}
+            disabled={isDisabled}
             aria-invalid={invalid}
+            aria-busy={isLoading || undefined}
             aria-describedby={describedBy || undefined}
             onBlur={field.handleBlur}
             onCheckedChange={change}
           />
           <UiFieldContent>
-            <UiFieldLabel htmlFor={id}>
+            <UiFieldLabel
+              htmlFor={id}
+              className={isLoading ? "flex items-center gap-1.5" : undefined}
+            >
               {config.label}
               {config.required ? " *" : null}
+              {isLoading ? <Spinner className="size-3.5" aria-hidden="true" /> : null}
             </UiFieldLabel>
             {config.description ? (
               <FieldDescription id={descriptionId}>{config.description}</FieldDescription>
@@ -383,7 +439,7 @@ function ConfiguredField<TValues extends Record<string, unknown>>({
     control = (
       <Select
         value={String(field.state.value ?? "")}
-        disabled={config.disabled}
+        disabled={isDisabled}
         onValueChange={change}
         onOpenChange={(open) => {
           if (!open) field.handleBlur();
@@ -394,6 +450,7 @@ function ConfiguredField<TValues extends Record<string, unknown>>({
           id={id}
           className="w-full"
           aria-invalid={invalid}
+          aria-busy={isLoading || undefined}
           aria-describedby={describedBy || undefined}
         >
           <SelectValue placeholder={config.placeholder}>
@@ -418,8 +475,9 @@ function ConfiguredField<TValues extends Record<string, unknown>>({
         placeholder={config.placeholder}
         rows={config.rows}
         required={config.required}
-        disabled={config.disabled}
+        disabled={isDisabled}
         aria-invalid={invalid}
+        aria-busy={isLoading || undefined}
         aria-describedby={describedBy || undefined}
         onBlur={field.handleBlur}
         onChange={(event) => change(event.target.value)}
@@ -434,8 +492,9 @@ function ConfiguredField<TValues extends Record<string, unknown>>({
         placeholder={config.placeholder}
         autoComplete={config.autoComplete}
         required={config.required}
-        disabled={config.disabled}
+        disabled={isDisabled}
         invalid={invalid}
+        aria-busy={isLoading || undefined}
         aria-describedby={describedBy || undefined}
         onBlur={field.handleBlur}
         onChange={change}
@@ -451,8 +510,9 @@ function ConfiguredField<TValues extends Record<string, unknown>>({
         placeholder={config.placeholder}
         autoComplete={config.autoComplete}
         required={config.required}
-        disabled={config.disabled}
+        disabled={isDisabled}
         aria-invalid={invalid}
+        aria-busy={isLoading || undefined}
         aria-describedby={describedBy || undefined}
         onBlur={field.handleBlur}
         onChange={(event) => change(getInputValue(event, config.type))}
@@ -463,9 +523,10 @@ function ConfiguredField<TValues extends Record<string, unknown>>({
   return (
     <UiFieldSet className={cn("w-full", config.className)}>
       <UiField data-invalid={invalid}>
-        <UiFieldLabel htmlFor={id}>
+        <UiFieldLabel htmlFor={id} className={isLoading ? "flex items-center gap-1.5" : undefined}>
           {config.label}
           {config.required ? " *" : null}
+          {isLoading ? <Spinner className="size-3.5" aria-hidden="true" /> : null}
         </UiFieldLabel>
 
         {control}

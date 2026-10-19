@@ -1,9 +1,8 @@
+import type * as z from "zod";
 import { type AnyFieldApi, revalidateLogic, useSelector } from "@tanstack/react-form";
 import { EyeIcon, EyeOffIcon } from "lucide-react";
 import * as React from "react";
 import { useFetcher, useFormAction, useNavigation, useSubmit } from "react-router";
-import type * as z from "zod";
-
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
 import {
@@ -24,8 +23,8 @@ import {
   SelectValue,
 } from "~/components/ui/select";
 import { Spinner } from "~/components/ui/spinner";
-import { Textarea } from "~/components/ui/textarea";
 import { useAppForm } from "~/components/ui/tanstack-form";
+import { Textarea } from "~/components/ui/textarea";
 import { cn } from "~/lib/utils";
 
 export type FormActionResult = {
@@ -49,6 +48,7 @@ type BaseFieldConfig<TValues> = {
   required?: boolean;
   disabled?: boolean;
   loading?: boolean;
+  readonly?: boolean;
   className?: string;
 };
 
@@ -85,8 +85,11 @@ export type CustomFieldRenderContext = {
   id: string;
   serverError?: string;
   clearServerErrors: () => void;
-  setFieldLoading: (names: readonly string[], loading: boolean) => void;
-  setAllLoading: (loading: boolean) => void;
+  setFieldConfig: (
+    names: readonly string[],
+    config: { loading?: boolean; readonly?: boolean },
+  ) => void;
+  setAllFieldConfig: (config: { loading?: boolean; readonly?: boolean }) => void;
 };
 
 type CustomFieldConfig<TValues> = BaseFieldConfig<TValues> & {
@@ -189,36 +192,75 @@ export function ConfigurableForm<TValues extends Record<string, unknown>>({
   const [loadingFields, setLoadingFields] = React.useState<Readonly<Record<string, boolean>>>(() =>
     Object.fromEntries(fields.map((config) => [config.name, config.loading ?? false])),
   );
+  const [readonlyFields, setReadonlyFields] = React.useState<Readonly<Record<string, boolean>>>(
+    () => Object.fromEntries(fields.map((config) => [config.name, false])),
+  );
 
-  const setFieldLoading = React.useCallback((names: readonly string[], loading: boolean) => {
-    if (names.length === 0) return;
-    setLoadingFields((previous) => {
-      let changed = false;
-      const next: Record<string, boolean> = { ...previous };
-      for (const name of names) {
-        if (!Object.hasOwn(previous, name)) {
-          if (process.env.NODE_ENV !== "production") {
-            console.warn(`[ConfigurableForm] setFieldLoading: unknown field name "${name}"`);
+  const setFieldConfig = React.useCallback(
+    (names: readonly string[], config: { loading?: boolean; readonly?: boolean }) => {
+      if (names.length === 0) return;
+      const known = new Set<string>(fields.map((field) => field.name));
+      const validNames = names.filter((name) => {
+        if (known.has(name)) return true;
+        if (process.env.NODE_ENV !== "production") {
+          console.warn(`[ConfigurableForm] setFieldConfig: unknown field name "${name}"`);
+        }
+        return false;
+      });
+      if (validNames.length === 0) return;
+      if (config.loading !== undefined) {
+        const loading = config.loading;
+        setLoadingFields((previous) => {
+          let changed = false;
+          const next: Record<string, boolean> = { ...previous };
+          for (const name of validNames) {
+            if (next[name] !== loading) {
+              next[name] = loading;
+              changed = true;
+            }
           }
-          continue;
-        }
-        if ((next[name] ?? false) !== loading) {
-          next[name] = loading;
-          changed = true;
-        }
+          return changed ? next : previous;
+        });
       }
-      return changed ? next : previous;
-    });
-  }, []);
+      if (config.readonly !== undefined) {
+        const readonly = config.readonly;
+        setReadonlyFields((previous) => {
+          let changed = false;
+          const next: Record<string, boolean> = { ...previous };
+          for (const name of validNames) {
+            if (next[name] !== readonly) {
+              next[name] = readonly;
+              changed = true;
+            }
+          }
+          return changed ? next : previous;
+        });
+      }
+    },
+    [fields],
+  );
 
-  const setAllLoading = React.useCallback((loading: boolean) => {
-    setLoadingFields((previous) => {
-      const keys = Object.keys(previous);
-      if (keys.length === 0) return previous;
-      if (keys.every((key) => (previous[key] ?? false) === loading)) return previous;
-      return Object.fromEntries(keys.map((key) => [key, loading]));
-    });
-  }, []);
+  const setAllFieldConfig = React.useCallback(
+    (config: { loading?: boolean; readonly?: boolean }) => {
+      if (config.loading !== undefined) {
+        const loading = config.loading;
+        setLoadingFields((previous) => {
+          const keys = Object.keys(previous);
+          if (keys.every((key) => previous[key] === loading)) return previous;
+          return Object.fromEntries(keys.map((key) => [key, loading]));
+        });
+      }
+      if (config.readonly !== undefined) {
+        const readonly = config.readonly;
+        setReadonlyFields((previous) => {
+          const keys = Object.keys(previous);
+          if (keys.every((key) => previous[key] === readonly)) return previous;
+          return Object.fromEntries(keys.map((key) => [key, readonly]));
+        });
+      }
+    },
+    [],
+  );
 
   const form = useAppForm({
     defaultValues,
@@ -312,9 +354,10 @@ export function ConfigurableForm<TValues extends Record<string, unknown>>({
                         : undefined
                     }
                     clearServerErrors={() => clearServerError(config.name)}
+                    readonly={config.readonly || readonlyFields[config.name]}
                     loading={loadingFields[config.name] ?? config.loading ?? false}
-                    setFieldLoading={setFieldLoading}
-                    setAllLoading={setAllLoading}
+                    setFieldConfig={setFieldConfig}
+                    setAllFieldConfig={setAllFieldConfig}
                   />
                 )}
               </form.AppField>
@@ -351,16 +394,21 @@ function ConfiguredField<TValues extends Record<string, unknown>>({
   serverError,
   clearServerErrors,
   loading,
-  setFieldLoading,
-  setAllLoading,
+  readonly,
+  setFieldConfig,
+  setAllFieldConfig,
 }: Readonly<{
   config: FormFieldConfig<TValues>;
   field: AnyFieldApi;
   serverError?: string;
   clearServerErrors: () => void;
   loading: boolean;
-  setFieldLoading: (names: readonly string[], loading: boolean) => void;
-  setAllLoading: (loading: boolean) => void;
+  readonly: boolean;
+  setFieldConfig: (
+    names: readonly string[],
+    config: { loading?: boolean; readonly?: boolean },
+  ) => void;
+  setAllFieldConfig: (config: { loading?: boolean; readonly?: boolean }) => void;
 }>) {
   const id = React.useId();
   const descriptionId = `${id}-description`;
@@ -392,8 +440,8 @@ function ConfiguredField<TValues extends Record<string, unknown>>({
           id,
           serverError,
           clearServerErrors,
-          setFieldLoading,
-          setAllLoading,
+          setFieldConfig,
+          setAllFieldConfig,
         })}
       </div>
     );
@@ -413,6 +461,8 @@ function ConfiguredField<TValues extends Record<string, unknown>>({
             aria-describedby={describedBy || undefined}
             onBlur={field.handleBlur}
             onCheckedChange={change}
+            readOnly={readonly}
+            className={cn(readonly && "bg-muted! cursor-default")}
           />
           <UiFieldContent>
             <UiFieldLabel
@@ -444,11 +494,12 @@ function ConfiguredField<TValues extends Record<string, unknown>>({
         onOpenChange={(open) => {
           if (!open) field.handleBlur();
         }}
+        readOnly={readonly}
       >
         <SelectTrigger
           aria-required={config.required}
           id={id}
-          className="w-full"
+          className={cn("w-full", readonly && "bg-muted! cursor-default")}
           aria-invalid={invalid}
           aria-busy={isLoading || undefined}
           aria-describedby={describedBy || undefined}
@@ -469,6 +520,7 @@ function ConfiguredField<TValues extends Record<string, unknown>>({
   } else if (config.type === "textarea") {
     control = (
       <Textarea
+        className={cn(readonly && "bg-muted! cursor-default")}
         id={id}
         name={field.name}
         value={String(field.state.value ?? "")}
@@ -476,6 +528,7 @@ function ConfiguredField<TValues extends Record<string, unknown>>({
         rows={config.rows}
         required={config.required}
         disabled={isDisabled}
+        readOnly={readonly}
         aria-invalid={invalid}
         aria-busy={isLoading || undefined}
         aria-describedby={describedBy || undefined}
@@ -487,12 +540,14 @@ function ConfiguredField<TValues extends Record<string, unknown>>({
     control = (
       <PasswordInput
         id={id}
+        className={cn(readonly && "bg-muted! cursor-default")}
         name={field.name}
         value={String(field.state.value ?? "")}
         placeholder={config.placeholder}
         autoComplete={config.autoComplete}
         required={config.required}
         disabled={isDisabled}
+        readOnly={readonly}
         invalid={invalid}
         aria-busy={isLoading || undefined}
         aria-describedby={describedBy || undefined}
@@ -504,6 +559,7 @@ function ConfiguredField<TValues extends Record<string, unknown>>({
     control = (
       <Input
         id={id}
+        className={cn(readonly && "bg-muted! cursor-default")}
         name={field.name}
         type={config.type}
         value={String(field.state.value ?? "")}
@@ -511,6 +567,7 @@ function ConfiguredField<TValues extends Record<string, unknown>>({
         autoComplete={config.autoComplete}
         required={config.required}
         disabled={isDisabled}
+        readOnly={readonly}
         aria-invalid={invalid}
         aria-busy={isLoading || undefined}
         aria-describedby={describedBy || undefined}

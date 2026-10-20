@@ -1,5 +1,3 @@
-import { useEffect, useMemo, useDeferredValue, useState } from "react";
-import { Settings2 } from "lucide-react";
 import {
   createColumnHelper,
   type ColumnDef,
@@ -9,10 +7,15 @@ import {
   type SortingState,
   useTable,
 } from "@tanstack/react-table";
-
-import { Button } from "~/components/ui/button";
-import { Input } from "~/components/ui/input";
-
+import { Settings2 } from "lucide-react";
+import { useEffect, useMemo, useDeferredValue, useState } from "react";
+import type { FilterField, FilterQuery } from "~/components/reui/filters/filters-types";
+import {
+  createDataTableRowActionsColumn,
+  type DataTableRow,
+  type DataTableRowActions,
+  type RowActionHandler,
+} from "~/components/data-table-row-actions";
 import {
   DataGrid,
   DataGridContainer,
@@ -23,20 +26,19 @@ import { DataGridColumnVisibility } from "~/components/reui/data-grid/data-grid-
 import { DataGridPagination } from "~/components/reui/data-grid/data-grid-pagination";
 import { DataGridScrollArea } from "~/components/reui/data-grid/data-grid-scroll-area";
 import { DataGridTable } from "~/components/reui/data-grid/data-grid-table";
-
 import { Filters } from "~/components/reui/filters/filters";
-import {
-  createFilterQuery,
-  flattenFilterConditions,
-} from "~/components/reui/filters/filters-query";
 import { buildFilterIndex, getFilterField } from "~/components/reui/filters/filters-lib";
 import {
   getFilterArity,
   getFilterOperator,
   resolveFilterOperators,
 } from "~/components/reui/filters/filters-operators";
-import type { FilterField, FilterQuery } from "~/components/reui/filters/filters-types";
-import { isEmptyValue, stringifyValue, toFiniteNumber } from "~/lib/utils";
+import {
+  createFilterQuery,
+  flattenFilterConditions,
+} from "~/components/reui/filters/filters-query";
+import { Button } from "~/components/ui/button";
+import { Input } from "~/components/ui/input";
 import {
   calendarDateKeyToDate,
   compareCalendarDateKeys,
@@ -45,12 +47,7 @@ import {
   parseExplicitTimestamp,
   type CalendarDateNormalizer,
 } from "~/lib/calendar-date";
-import {
-  createDataTableRowActionsColumn,
-  type DataTableRow,
-  type DataTableRowActions,
-  type RowActionHandler,
-} from "~/components/data-table-row-actions";
+import { isEmptyValue, stringifyValue, toFiniteNumber } from "~/lib/utils";
 
 export type { DataTableRow } from "~/components/data-table-row-actions";
 

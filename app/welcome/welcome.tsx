@@ -234,6 +234,7 @@ export function Welcome() {
             dateTimeZone={DATE_TIME_ZONE}
             columns={columns}
             filterFields={filterFields}
+            enableRowNumbers
             getRowId={(row) => row.id}
             searchKeys={["library", "type"]}
             searchPlaceholder="Search libraries..."

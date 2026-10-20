@@ -189,7 +189,7 @@ export function UsersTable({ users }: { users: UserRow[] }) {
 
 The table performs pagination, sorting, searching, and filtering in the browser over the complete supplied dataset. Filters are a basic flat bar whose rules are combined with implicit `AND`; nested groups and `OR` editing are not supported. Incomplete rules are ignored according to each field’s resolved operator arity (including custom operators); unsupported nonempty operators match no rows even when they have no value. Empty selections are checked by array length, and numeric comparisons exclude missing, blank, and non-finite values.
 
-`initialPageSize` must be a positive integer; the current size is included in the page-size selector. Use `aria-label` or `aria-labelledby` to identify each table. Row actions without an individual or shared handler are omitted. Column resizing defaults to off; `enableColumnResizing={true}` opts into the grid primitive’s pointer-based resize handles.
+`initialPageSize` must be a positive integer; the current size is included in the page-size selector. Use `aria-label` or `aria-labelledby` to identify each table. Row actions without an individual or shared handler are omitted. Column resizing defaults to off; `enableColumnResizing={true}` opts into the grid primitive’s pointer-based resize handles. Row numbers default to off; `enableRowNumbers={true}` prepends a fixed `#` column whose numbers continue across pages and follow the current sort/filter order (it cannot be hidden).
 
 Use row actions for resource-specific commands without coupling them to the table implementation:
 

@@ -74,6 +74,11 @@ export interface DataTableProps<TData extends RowData> {
   enableSearch?: boolean;
   enableFilters?: boolean;
   enableColumnVisibility?: boolean;
+  /**
+   * Prepend a fixed "#" row-number column. Numbers continue across pages and
+   * follow the current sort/filter order. The column cannot be hidden.
+   */
+  enableRowNumbers?: boolean;
   /** Opt in to the grid primitive's pointer-based column resizing. */
   enableColumnResizing?: boolean;
   isLoading?: boolean;
@@ -309,6 +314,24 @@ export function TableDate({
 
 const EMPTY_FILTER_FIELDS: readonly FilterField[] = Object.freeze([]);
 
+function createDataTableRowNumberColumn<TData extends RowData>({
+  offset,
+}: Readonly<{ offset: number }>): DataTableColumn<TData> {
+  return {
+    id: "row-number",
+    header: "#",
+    cell: ({ row }) => offset + row.getDisplayIndex() + 1,
+    size: 48,
+    enableHiding: false,
+    enableSorting: false,
+    enableResizing: false,
+    meta: {
+      headerClassName: "text-right",
+      cellClassName: "text-right tabular-nums",
+    },
+  };
+}
+
 export function DataTable<TData extends RowData>({
   data,
   columns,
@@ -324,6 +347,7 @@ export function DataTable<TData extends RowData>({
   enableSearch = true,
   enableFilters = true,
   enableColumnVisibility = true,
+  enableRowNumbers = false,
   enableColumnResizing = false,
   isLoading = false,
   loadingMessage = "Loading data...",
@@ -424,18 +448,34 @@ export function DataTable<TData extends RowData>({
   }, [pageCount]);
 
   const resolvedColumns = useMemo<readonly DataTableColumn<TData>[]>(() => {
-    if (!rowActions) {
-      return columns;
+    let resolved: DataTableColumn<TData>[] = rowActions
+      ? [
+          ...columns,
+          createDataTableRowActionsColumn({
+            rowActions,
+            onRowAction,
+          }),
+        ]
+      : [...columns];
+
+    if (enableRowNumbers) {
+      resolved = [
+        createDataTableRowNumberColumn<TData>({
+          offset: pagination.pageIndex * pagination.pageSize,
+        }),
+        ...resolved,
+      ];
     }
 
-    return [
-      ...columns,
-      createDataTableRowActionsColumn({
-        rowActions,
-        onRowAction,
-      }),
-    ];
-  }, [columns, rowActions, onRowAction]);
+    return resolved;
+  }, [
+    columns,
+    rowActions,
+    onRowAction,
+    enableRowNumbers,
+    pagination.pageIndex,
+    pagination.pageSize,
+  ]);
 
   const table = useTable<DataGridFeatures, TData>({
     features: dataGridFeatures,
